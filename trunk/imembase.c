@@ -109,6 +109,7 @@ int iv_resize(struct IVECTOR *v, size_t newsize)
 		if (v->block > 0) {
 			internal_free(v->allocator, v->data);
 			v->block = 0;
+			v->size = 0;
 			v->data = NULL;
 		}
 		return 0;
