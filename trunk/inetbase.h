@@ -501,7 +501,6 @@ int inet_open_port(unsigned short port, unsigned long ip, int noblock);
 int inet_set_bufsize(int sock, long recvbuf_size, long sendbuf_size);
 
 
-
 /*===================================================================*/
 /* Cross-Platform Poll Interface                                     */
 /*===================================================================*/
