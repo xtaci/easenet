@@ -221,6 +221,12 @@ void itmc_init(struct ITMCLIENT *client, struct IMEMNODE *nodes, int header)
 	client->time = 0;
 	client->buffer = NULL;
 	client->header = (header < 0 || header > 12)? 0 : header;
+	client->rc4_send_x = -1;
+	client->rc4_send_y = -1;
+	client->rc4_recv_x = -1;
+	client->rc4_recv_y = -1;
+	client->rc4_send_box = NULL;
+	client->rc4_recv_box = NULL;
 	ims_init(&client->sendmsg, nodes, 0, 0);
 	ims_init(&client->recvmsg, nodes, 0, 0);
 }
@@ -228,6 +234,8 @@ void itmc_init(struct ITMCLIENT *client, struct IMEMNODE *nodes, int header)
 void itmc_destroy(struct ITMCLIENT *client)
 {
 	if (client->sock >= 0) iclose(client->sock);
+	if (client->buffer) ikmem_free(client->buffer);
+	client->buffer = NULL;
 	client->sock = -1;
 	client->hid = -1;
 	client->tag = -1;
@@ -235,24 +243,50 @@ void itmc_destroy(struct ITMCLIENT *client)
 	client->state = ITMC_STATE_CLOSED;
 	ims_destroy(&client->sendmsg);
 	ims_destroy(&client->recvmsg);
+	client->rc4_send_box = NULL;
+	client->rc4_recv_box = NULL;
+	client->rc4_send_x = -1;
+	client->rc4_send_y = -1;
+	client->rc4_recv_x = -1;
+	client->rc4_recv_y = -1;
 }
+
+#ifndef ITMC_BUFSIZE
+#define ITMC_BUFSIZE	0x10000
+#endif
 
 int itmc_connect(struct ITMCLIENT *client, const struct sockaddr *addr)
 {
 	if (client->sock >= 0) iclose(client->sock);
+
 	client->sock = -1;
 	client->state = ITMC_STATE_CLOSED;
 	client->hid = -1;
+
 	ims_clear(&client->sendmsg);
 	ims_clear(&client->recvmsg);
-	client->buffer = NULL;
+
+	if (client->buffer == NULL) {
+		client->buffer = ikmem_malloc(ITMC_BUFSIZE + 512);
+		if (client->buffer == NULL) return -1;
+		client->rc4_send_box = (unsigned char*)client->buffer + ITMC_BUFSIZE;
+		client->rc4_recv_box = client->rc4_send_box + 256;
+	}
+
+	client->rc4_send_x = -1;
+	client->rc4_send_y = -1;
+	client->rc4_recv_x = -1;
+	client->rc4_recv_y = -1;
+
 	client->sock = isocket(AF_INET, SOCK_STREAM, 0);
 	if (client->sock < 0) return -2;
+
 	ienable(client->sock, ISOCK_NOBLOCK);
 	ienable(client->sock, ISOCK_REUSEADDR);
 	iconnect(client->sock, addr);
 	isockname(client->sock, &client->local);
 	client->state = ITMC_STATE_CONNECTING;
+
 	return 0;
 }
 
@@ -260,14 +294,29 @@ int itmc_assign(struct ITMCLIENT *client, int sock)
 {
 	if (client->sock >= 0) iclose(client->sock);
 	client->sock = -1;
-	client->buffer = NULL;
+
+	if (client->buffer == NULL) {
+		client->buffer = ikmem_malloc(ITMC_BUFSIZE + 512);
+		if (client->buffer == NULL) return -1;
+		client->rc4_send_box = (unsigned char*)client->buffer + ITMC_BUFSIZE;
+		client->rc4_recv_box = client->rc4_send_box + 256;
+	}
+
+	client->rc4_send_x = -1;
+	client->rc4_send_y = -1;
+	client->rc4_recv_x = -1;
+	client->rc4_recv_y = -1;
+
 	ims_clear(&client->sendmsg);
 	ims_clear(&client->recvmsg);
+
 	client->sock = sock;
+
 	ienable(client->sock, ISOCK_NOBLOCK);
 	ienable(client->sock, ISOCK_REUSEADDR);
 	isockname(client->sock, &client->local);
 	client->state = ITMC_STATE_ESTABLISHED;
+
 	return 0;
 }
 
@@ -276,6 +325,10 @@ int itmc_close(struct ITMCLIENT *client)
 	if (client->sock >= 0) iclose(client->sock);
 	client->sock = -1;
 	client->state = ITMC_STATE_CLOSED;
+	client->rc4_send_x = -1;
+	client->rc4_send_y = -1;
+	client->rc4_recv_x = -1;
+	client->rc4_recv_y = -1;
 	return 0;
 }
 
@@ -324,11 +377,11 @@ static void itmc_try_send(struct ITMCLIENT *client)
 
 static void itmc_try_recv(struct ITMCLIENT *client)
 {
-	unsigned char buffer[0x10000];
+	unsigned char *buffer = (unsigned char*)client->buffer;
 	int retval;
 	if (client->state != ITMC_STATE_ESTABLISHED) return;
 	while (1) {
-		retval = irecv(client->sock, buffer, 0x10000, 0);
+		retval = irecv(client->sock, buffer, ITMC_BUFSIZE, 0);
 		if (retval < 0) {
 			retval = ierrno();
 			if (retval == IEAGAIN) break;
@@ -343,6 +396,10 @@ static void itmc_try_recv(struct ITMCLIENT *client)
 			client->error = -1;
 			itmc_close(client);
 			break;
+		}
+		if (client->rc4_recv_x >= 0 && client->rc4_recv_y >= 0) {
+			icrypt_rc4_crypt(client->rc4_recv_box, &client->rc4_recv_x,
+				&client->rc4_recv_y, buffer, buffer, retval);
 		}
 		ims_write(&client->recvmsg, buffer, retval);
 	}
@@ -403,7 +460,7 @@ int itmc_dsize(const struct ITMCLIENT *client)
 	hdrinc = itmc_head_inc[client->header];
 
 	len = (unsigned short)ims_peek(&client->recvmsg, dsize, hdrlen);
-	if (len < hdrlen) return 0;
+	if (len < (unsigned long)hdrlen) return 0;
 
 	if (client->header != ITMH_DWORDMASK) {
 		header = (client->header < 6)? client->header : client->header - 6;
@@ -441,7 +498,7 @@ int itmc_dsize(const struct ITMCLIENT *client)
 
 	len += hdrinc;
 
-	if (ims_dsize(&client->recvmsg) < len) return 0;
+	if (ims_dsize(&client->recvmsg) < (ilong)len) return 0;
 	return (int)len;
 }
 
@@ -487,8 +544,25 @@ int itmc_send(struct ITMCLIENT *client, const void *ptr, int size, int mask)
 		iencode32u_lsb((char*)dsize, (IUINT32)len);
 	}
 
-	ims_write(&client->sendmsg, dsize, hdrlen);
-	ims_write(&client->sendmsg, ptr, size);
+	if (client->rc4_send_x < 0 || client->rc4_send_y < 0) {
+		ims_write(&client->sendmsg, dsize, hdrlen);
+		ims_write(&client->sendmsg, ptr, size);
+	}	else {
+		unsigned char *buffer = (unsigned char*)client->buffer;
+		const unsigned char *lptr = (const unsigned char*)ptr;
+		long length = size;
+		icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x, 
+			&client->rc4_send_y, dsize, dsize, hdrlen);
+		ims_write(&client->sendmsg, dsize, hdrlen);
+		for (; length > 0; ) {
+			long canread = (length > ITMC_BUFSIZE)? ITMC_BUFSIZE : length;
+			icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x, 
+				&client->rc4_send_y, lptr, buffer, canread);
+			ims_write(&client->sendmsg, buffer, canread);
+			length -= canread;
+			lptr += canread;
+		}
+	}
 
 	return 0;
 }
@@ -503,7 +577,7 @@ int itmc_recv(struct ITMCLIENT *client, void *ptr, int size)
 	hdrlen = itmc_head_len[client->header];
 
 	len = itmc_dsize(client);
-	if (len <= 0) return 0;
+	if (len <= 0) return -1;
 
 	ims_drop(&client->recvmsg, hdrlen);
 	len -= hdrlen;
@@ -569,10 +643,29 @@ int itmc_vsend(struct ITMCLIENT *client, const void *vecptr[],
 		iencode32u_lsb((char*)dsize, (IUINT32)len);
 	}
 
+	if (client->rc4_send_x >= 0 && client->rc4_send_y >= 0) {
+		icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x,
+			&client->rc4_send_y, dsize, dsize, hdrlen);
+	}
+
 	ims_write(&client->sendmsg, dsize, hdrlen);
 
 	for (i = 0; i < count; i++) {
-		ims_write(&client->sendmsg, vecptr[i], veclen[i]);
+		if (client->rc4_send_x < 0 || client->rc4_send_y < 0) {
+			ims_write(&client->sendmsg, vecptr[i], veclen[i]);
+		}	else {
+			unsigned char *buffer = (unsigned char*)client->buffer;
+			const unsigned char *lptr = (const unsigned char*)vecptr[i];
+			long size = veclen[i];
+			for (; size > 0; ) {
+				long canread = (size > ITMC_BUFSIZE)? ITMC_BUFSIZE : size;
+				icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x, 
+					&client->rc4_send_y, lptr, buffer, canread);
+				ims_write(&client->sendmsg, buffer, canread);
+				size -= canread;
+				lptr += canread;
+			}
+		}
 	}
 
 	return 0;
@@ -591,7 +684,7 @@ int itmc_wait(struct ITMCLIENT *client, int millisec)
 		if (client->state == ITMC_STATE_CLOSED) return ISOCK_ERROR;
 
 		if (millisec > 0) {
-			if (millisec <= clock) return 0;
+			if (millisec <= (int)clock) return 0;
 			millisec -= (int)clock;
 		}
 
@@ -601,6 +694,24 @@ int itmc_wait(struct ITMCLIENT *client, int millisec)
 	}
 
 	return 0;
+}
+
+void itmc_rc4_set_skey(struct ITMCLIENT *client, 
+	const unsigned char *key, int keylen)
+{
+	if (client->rc4_send_box) {
+		icrypt_rc4_init(client->rc4_send_box, &client->rc4_send_x,
+			&client->rc4_send_y, key, keylen);
+	}
+}
+
+void itmc_rc4_set_rkey(struct ITMCLIENT *client, 
+	const unsigned char *key, int keylen)
+{
+	if (client->rc4_recv_box) {
+		icrypt_rc4_init(client->rc4_recv_box, &client->rc4_recv_x,
+			&client->rc4_recv_y, key, keylen);
+	}
 }
 
 

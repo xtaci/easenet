@@ -147,7 +147,7 @@ long isim_transfer_recv(iSimTransfer *trans, void *data, long maxsize)
 {
 	iSimPacket *packet;
 	iqueue_head *p;
-	long size;
+	long size = 0;
 
 	assert(trans);
 
