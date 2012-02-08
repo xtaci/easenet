@@ -18,9 +18,14 @@
 #include <netdb.h>
 #include <sched.h>
 #include <pthread.h>
-#include <poll.h>
 #include <dlfcn.h>
-#include <signal.h>
+#include <unistd.h>
+#include <netinet/in.h>
+
+#ifndef __llvm__
+#include <poll.h>
+#include <netinet/tcp.h>
+#endif
 
 #elif (defined(_WIN32) || defined(WIN32))
 #if ((!defined(_M_PPC)) && (!defined(_M_PPC_BE)) && (!defined(_XBOX)))
@@ -66,26 +71,30 @@ volatile IINT64 itimeclock = 0;
 /* default mode = 0, using timeGetTime in win32 instead of QPC */
 int itimemode = 0;
 
+#ifdef __llvm__
+#ifdef __cplusplus
+extern "C" int usleep(useconds_t);
+#else
+int usleep(useconds_t);
+#endif
+#endif
 
-/*-------------------------------------------------------------------*/
-/* sleep in millisecond                                              */
-/*-------------------------------------------------------------------*/
+/* sleep in millisecond */
 void isleep(unsigned long millisecond)
 {
 	#ifdef __unix 	/* usleep( time * 1000 ); */
 	struct timespec ts;
 	ts.tv_sec = (time_t)(millisecond / 1000);
 	ts.tv_nsec = (long)((millisecond % 1000) * 1000000);
-	//nanosleep(&ts, NULL);
+	/*nanosleep(&ts, NULL);*/
 	usleep((millisecond << 10) - (millisecond << 4) - (millisecond << 3));
 	#elif defined(_WIN32)
 	Sleep(millisecond);
 	#endif
 }
 
-/*-------------------------------------------------------------------*/
-/* get system time                                                   */
-/*-------------------------------------------------------------------*/
+
+/* get system time */
 static void itimeofday_default(long *sec, long *usec)
 {
 	#if defined(__unix)
@@ -146,9 +155,7 @@ static void itimeofday_clock(long *sec, long *usec)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* get time of day                                                   */
-/*-------------------------------------------------------------------*/
+/* get time of day */
 void itimeofday(long *sec, long *usec)
 {
 	IINT64 value;
@@ -165,9 +172,7 @@ void itimeofday(long *sec, long *usec)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* get clock in millisecond 64                                       */
-/*-------------------------------------------------------------------*/
+/* get clock in millisecond 64 */
 IINT64 iclock64(void)
 {
 	IINT64 value;
@@ -176,9 +181,7 @@ IINT64 iclock64(void)
 	return value;
 }
 
-/*-------------------------------------------------------------------*/
-/* get clock in millisecond                                          */
-/*-------------------------------------------------------------------*/
+/* get clock in millisecond */
 unsigned long iclock(void)
 {
 	iclock64();
@@ -190,9 +193,7 @@ unsigned long iclock(void)
 /* Cross-Platform Threading Interface                                */
 /*===================================================================*/
 
-/*-------------------------------------------------------------------*/
-/* create thread                                                     */
-/*-------------------------------------------------------------------*/
+/* create thread */
 int ithread_create(ilong *id, ITHREADPROC fun, const void *attr, void *args)
 {
 	#ifdef __unix
@@ -210,9 +211,7 @@ int ithread_create(ilong *id, ITHREADPROC fun, const void *attr, void *args)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* exit thread                                                       */
-/*-------------------------------------------------------------------*/
+/* exit thread */
 void ithread_exit(long retval)
 {
 	#ifdef __unix
@@ -222,9 +221,7 @@ void ithread_exit(long retval)
 	#endif
 }
 
-/*-------------------------------------------------------------------*/
-/* join thread                                                       */
-/*-------------------------------------------------------------------*/
+/* join thread */
 int ithread_join(ilong id)
 {
 	long status;
@@ -237,9 +234,7 @@ int ithread_join(ilong id)
 	return status;
 }
 
-/*-------------------------------------------------------------------*/
-/* detach thread                                                     */
-/*-------------------------------------------------------------------*/
+/* detach thread */
 int ithread_detach(ilong id)
 {
 	long status;
@@ -252,9 +247,7 @@ int ithread_detach(ilong id)
 	return status;
 }
 
-/*-------------------------------------------------------------------*/
-/* kill thread                                                       */
-/*-------------------------------------------------------------------*/
+/* kill thread */
 int ithread_kill(ilong id)
 {
 	int retval = 0;
@@ -278,17 +271,13 @@ int ithread_kill(ilong id)
 /* Cross-Platform Socket Interface                                   */
 /*===================================================================*/
 
-/*-------------------------------------------------------------------*/
-/* create socket                                                     */
-/*-------------------------------------------------------------------*/
+/* create socket */
 int isocket(int family, int type, int protocol)
 {
 	return (int)socket(family, type, protocol);
 }
 
-/*-------------------------------------------------------------------*/
-/* close socket                                                      */
-/*-------------------------------------------------------------------*/
+/* close socket */
 int iclose(int sock)
 {
 	int retval = 0;
@@ -301,52 +290,40 @@ int iclose(int sock)
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* connect to remote                                                 */
-/*-------------------------------------------------------------------*/
+/* connect to remote */
 int iconnect(int sock, const struct sockaddr *addr)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
 	return connect(sock, addr, len);
 }
 
-/*-------------------------------------------------------------------*/
-/* shutdown socket                                                   */
-/*-------------------------------------------------------------------*/
+/* shutdown socket */
 int ishutdown(int sock, int mode)
 {
 	return shutdown(sock, mode);
 }
 
-/*-------------------------------------------------------------------*/
-/* bind to local address                                             */
-/*-------------------------------------------------------------------*/
+/* bind to local address */
 int ibind(int sock, const struct sockaddr *addr)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
 	return bind(sock, addr, len);
 }
 
-/*-------------------------------------------------------------------*/
-/* listen                                                            */
-/*-------------------------------------------------------------------*/
+/* listen */
 int ilisten(int sock, int count)
 {
 	return listen(sock, count);
 }
 
-/*-------------------------------------------------------------------*/
-/* accept connection                                                 */
-/*-------------------------------------------------------------------*/
+/* accept connection */
 int iaccept(int sock, struct sockaddr *addr)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
 	return (int)accept(sock, addr, &len);
 }
 
-/*-------------------------------------------------------------------*/
-/* get error number                                                  */
-/*-------------------------------------------------------------------*/
+/* get error number */
 int ierrno(void)
 {
 	int retval;
@@ -358,25 +335,19 @@ int ierrno(void)
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* send data                                                         */
-/*-------------------------------------------------------------------*/
+/* send data */
 int isend(int sock, const void *buf, long size, int mode)
 {
 	return send(sock, (char*)buf, size, mode);
 }
 
-/*-------------------------------------------------------------------*/
-/* receive data                                                      */
-/*-------------------------------------------------------------------*/
+/* receive data */
 int irecv(int sock, void *buf, long size, int mode)
 {
 	return recv(sock, (char*)buf, size, mode);
 }
 
-/*-------------------------------------------------------------------*/
-/* send to remote                                                    */
-/*-------------------------------------------------------------------*/
+/* send to remote */
 int isendto(int sock, const void *buf, long size, int mode, 
 			const struct sockaddr *addr)
 {
@@ -384,9 +355,7 @@ int isendto(int sock, const void *buf, long size, int mode,
 	return sendto(sock, (char*)buf, size, mode, addr, len);
 }
 
-/*-------------------------------------------------------------------*/
-/* recvfrom                                                          */
-/*-------------------------------------------------------------------*/
+/* recvfrom */
 int irecvfrom(int sock, void *buf, long size, int mode, 
 			struct sockaddr *addr)
 {
@@ -396,9 +365,7 @@ int irecvfrom(int sock, void *buf, long size, int mode,
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* i/o control                                                       */
-/*-------------------------------------------------------------------*/
+/* i/o control */
 int iioctl(int sock, long cmd, unsigned long *argp)
 {
 	int retval;
@@ -410,9 +377,7 @@ int iioctl(int sock, long cmd, unsigned long *argp)
 	return retval;	
 }
 
-/*-------------------------------------------------------------------*/
-/* set socket option                                                 */
-/*-------------------------------------------------------------------*/
+/* set socket option */
 int isetsockopt(int sock, int level, int optname, const char *optval, 
 	int optlen)
 {
@@ -420,9 +385,7 @@ int isetsockopt(int sock, int level, int optname, const char *optval,
 	return setsockopt(sock, level, optname, optval, len);
 }
 
-/*-------------------------------------------------------------------*/
-/* get socket option                                                 */
-/*-------------------------------------------------------------------*/
+/* get socket option */
 int igetsockopt(int sock, int level, int optname, char *optval, int *optlen)
 {
 	DSOCKLEN_T len = (optlen)? *optlen : 0;
@@ -433,18 +396,14 @@ int igetsockopt(int sock, int level, int optname, char *optval, int *optlen)
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* get socket name                                                   */
-/*-------------------------------------------------------------------*/
+/* get socket name */
 int isockname(int sock, struct sockaddr *addr)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
 	return getsockname(sock, addr, &len);
 }
 
-/*-------------------------------------------------------------------*/
-/* get peer name                                                     */
-/*-------------------------------------------------------------------*/
+/* get peer name */
 int ipeername(int sock, struct sockaddr *addr)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
@@ -456,9 +415,7 @@ int ipeername(int sock, struct sockaddr *addr)
 /* Basic Function Definition                                         */
 /*===================================================================*/
 
-/*-------------------------------------------------------------------*/
-/* enable option                                                     */
-/*-------------------------------------------------------------------*/
+/* enable option */
 int ienable(int fd, int mode)
 {
 	long value = 1;
@@ -474,8 +431,10 @@ int ienable(int fd, int mode)
 			(char*)&value, sizeof(value));
 		break;
 	case ISOCK_NODELAY:
+		#ifndef __llvm__
 		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NODELAY, 
 			(char*)&value, sizeof(value));
+		#endif
 		break;
 	case ISOCK_NOPUSH:
 		#ifdef TCP_NOPUSH
@@ -490,9 +449,7 @@ int ienable(int fd, int mode)
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* disable option                                                    */
-/*-------------------------------------------------------------------*/
+/* disable option */
 int idisable(int fd, int mode)
 {
 	long value = 0;
@@ -508,8 +465,10 @@ int idisable(int fd, int mode)
 				(char*)&value, sizeof(value));
 		break;
 	case ISOCK_NODELAY:
+		#ifndef __llvm__
 		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NODELAY, 
 				(char*)&value, sizeof(value));
+		#endif
 		break;
 	case ISOCK_NOPUSH:
 		#ifdef TCP_NOPUSH
@@ -523,14 +482,12 @@ int idisable(int fd, int mode)
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* poll event                                                        */
-/*-------------------------------------------------------------------*/
-int ipollfd(int sock, int event, long millsec)
+/* poll event */
+int ipollfd(int sock, int event, long millisec)
 {
 	int retval = 0;
 
-	#ifdef __unix
+	#if defined(__unix) && (!defined(__llvm__))
 	struct pollfd pfd;
 	
 	pfd.fd = sock;
@@ -541,7 +498,7 @@ int ipollfd(int sock, int event, long millsec)
 	pfd.events |= (event & ISOCK_ESEND)? POLLOUT : 0;
 	pfd.events |= (event & ISOCK_ERROR)? POLLERR : 0;
 
-	poll(&pfd, 1, millsec);
+	poll(&pfd, 1, millisec);
 
 	if ((event & ISOCK_ERECV) && (pfd.revents & POLLIN)) 
 		retval |= ISOCK_ERECV;
@@ -549,23 +506,48 @@ int ipollfd(int sock, int event, long millsec)
 		retval |= ISOCK_ESEND;
 	if ((event & ISOCK_ERROR) && (pfd.revents & POLLERR)) 
 		retval |= ISOCK_ERROR;
-
+	#elif defined(__llvm__) 
+	struct timeval tmx = { 0, 0 };
+	fd_set fdr, fdw, fde;
+	fd_set *pr = NULL, *pw = NULL, *pe = NULL;
+	tmx.tv_sec = millisec / 1000;
+	tmx.tv_usec = (millisec % 1000) * 1000;
+	if (event & ISOCK_ERECV) {
+		FD_ZERO(&fdr);
+		FD_SET(sock, &fdr);
+		pr = &fdr;
+	}
+	if (event & ISOCK_ESEND) {
+		FD_ZERO(&fdw);
+		FD_SET(sock, &fdw);
+		pw = &fdw;
+	}
+	if (event & ISOCK_ERROR) {
+		FD_ZERO(&fde);
+		FD_SET(sock, &fde);
+		pe = &fde;
+	}
+	retval = select(sock + 1, pr, pw, pe, (millisec >= 0)? &tmx : 0);
+	retval = 0;
+	if ((event & ISOCK_ERECV) && FD_ISSET(sock, &fdr)) event |= ISOCK_ERECV;
+	if ((event & ISOCK_ESEND) && FD_ISSET(sock, &fdw)) event |= ISOCK_ESEND;
+	if ((event & ISOCK_ERROR) && FD_ISSET(sock, &fde)) event |= ISOCK_ERROR;
 	#else
 	struct timeval tmx = { 0, 0 };
 	union { void *ptr; fd_set *fds; } p[3];
 	int fdr[2], fdw[2], fde[2];
 
-	tmx.tv_sec = millsec / 1000;
-	tmx.tv_usec = (millsec % 1000) * 1000;
+	tmx.tv_sec = millisec / 1000;
+	tmx.tv_usec = (millisec % 1000) * 1000;
 	fdr[0] = fdw[0] = fde[0] = 1;
 	fdr[1] = fdw[1] = fde[1] = sock;
 
 	p[0].ptr = (event & ISOCK_ERECV)? fdr : NULL;
 	p[1].ptr = (event & ISOCK_ESEND)? fdw : NULL;
-	p[2].ptr = (event & ISOCK_ESEND)? fde : NULL;
+	p[2].ptr = (event & ISOCK_ERROR)? fde : NULL;
 
 	retval = select( sock + 1, p[0].fds, p[1].fds, p[2].fds, 
-					(millsec >= 0)? &tmx : 0);
+					(millisec >= 0)? &tmx : 0);
 	retval = 0;
 
 	if ((event & ISOCK_ERECV) && fdr[0]) retval |= ISOCK_ERECV;
@@ -576,9 +558,7 @@ int ipollfd(int sock, int event, long millsec)
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* send all data                                                     */
-/*-------------------------------------------------------------------*/
+/* send all data */
 int isendall(int sock, const void *buf, long size)
 {
 	unsigned char *lptr = (unsigned char*)buf;
@@ -605,9 +585,7 @@ int isendall(int sock, const void *buf, long size)
 	return (retval < 0)? retval : total;
 }
 
-/*-------------------------------------------------------------------*/
-/* try to receive all data                                           */
-/*-------------------------------------------------------------------*/
+/* try to receive all data */
 int irecvall(int sock, void *buf, long size)
 {
 	unsigned char *lptr = (unsigned char*)buf;
@@ -634,9 +612,7 @@ int irecvall(int sock, void *buf, long size)
 	return (retval < 0)? retval : total;
 }
 
-/*-------------------------------------------------------------------*/
-/* format error string                                               */
-/*-------------------------------------------------------------------*/
+/* format error string */
 char *ierrstr(int errnum, char *msg, int size)
 {
 	static char buffer[1025];
@@ -662,9 +638,7 @@ char *ierrstr(int errnum, char *msg, int size)
 	return lptr;
 }
 
-/*-------------------------------------------------------------------*/
-/* get host address                                                  */
-/*-------------------------------------------------------------------*/
+/* get host address */
 int igethostaddr(struct in_addr *addrs, int count)
 {
 	#ifndef _XBOX
@@ -694,6 +668,244 @@ int igethostaddr(struct in_addr *addrs, int count)
 	#endif
 	return count;
 }
+
+
+/* iselect: fds(fd set), events(mask), revents(received events) */
+int iselect(const int *fds, const int *events, int *revents, int count, 
+	long millisec, void *workmem)
+{
+	int retval = 0;
+	int i;
+
+	if (workmem == NULL) {
+		#if defined(__unix) && (!defined(__llvm__))
+		return count * sizeof(struct pollfd);
+		#elif defined(__llvm__)
+		return sizeof(fd_set) * 3;
+		#else
+		return (count + 1) * sizeof(int) * 3;
+		#endif
+	}	
+	else {
+		#if defined(__unix) && (!defined(__llvm__))
+		struct pollfd *pfds = (struct pollfd*)workmem;
+
+		for (i = 0; i < count; i++) {
+			pfds[i].fd = fds[i];
+			pfds[i].events = 0;
+			pfds[i].revents = 0;
+			if (events[i] & ISOCK_ERECV) pfds[i].events |= POLLIN;
+			if (events[i] & ISOCK_ESEND) pfds[i].events |= POLLOUT;
+			if (events[i] & ISOCK_ERROR) pfds[i].events |= POLLERR;
+		}
+
+		poll(pfds, count, millisec);
+
+		for (i = 0; i < count; i++) {
+			int event = events[i];
+			int pevent = pfds[i].revents;
+			int revent = 0;
+			if ((event & ISOCK_ERECV) && (pevent & POLLIN)) 
+				revent |= ISOCK_ERECV;
+			if ((event & ISOCK_ESEND) && (pevent & POLLOUT))
+				revent |= ISOCK_ESEND;
+			if ((event & ISOCK_ERROR) && (pevent & POLLERR))
+				revent |= ISOCK_ERROR;
+			revents[i] = revent & event;
+			if (revents[i]) retval++;
+		}
+
+		#elif defined(__llvm__)
+		struct timeval tmx = { 0, 0 };
+		fd_set *fdr = NULL, *fdw = NULL, *fde = NULL;
+		fd_set *dr = NULL, *dw = NULL, *de = NULL;
+		int cr = 0, cw = 0, ce = 0;
+		int maxfd = 0;
+
+		if (count > FD_SETSIZE) {
+			return -1;
+		}
+
+		fdr = (fd_set*)workmem;
+		fdw = fdr + 1;
+		fde = fdw + 1;
+		FD_ZERO(fdr);
+		FD_ZERO(fdw);
+		FD_ZERO(fde);
+
+		for (i = 0; i < count; i++) {
+			int fd = fds[i];
+			int event = events[i];
+			if (fd > maxfd) maxfd = fd;
+			if (event & ISOCK_ERECV) { FD_SET(fd, fdr); cr++; }
+			if (event & ISOCK_ESEND) { FD_SET(fd, fdw); cw++; }
+			if (event & ISOCK_ERROR) { FD_SET(fd, fde); ce++; }
+		}
+
+		tmx.tv_sec = millisec / 1000;
+		tmx.tv_usec = (millisec % 1000) * 1000;
+
+		if (cr) dr = fdr;
+		if (cw) dw = fdw;
+		if (ce) de = fde;
+
+		select(maxfd, dr, dw, de, (millisec >= 0)? &tmx : 0);
+
+		for (i = 0; i < count; i++) {
+			int fd = fds[i];
+			int event = events[i];
+			int revent = 0;
+			if (event & ISOCK_ERECV) {
+				if (FD_ISSET(fd, fdr)) revent |= ISOCK_ERECV;
+			}
+			if (event & ISOCK_ESEND) {
+				if (FD_ISSET(fd, fdw)) revent |= ISOCK_ESEND;
+			}
+			if (event & ISOCK_ERROR) {
+				if (FD_ISSET(fd, fde)) revent |= ISOCK_ERROR;
+			}
+			revents[i] = event;
+			if (revent) retval++;
+		}
+
+		#else
+		struct timeval tmx = { 0, 0 };
+		int *fdr = (int*)workmem;
+		int *fdw = fdr + 1 + count;
+		int *fde = fdw + 1 + count;
+		void *dr, *dw, *de;
+		int maxfd = 0;
+		int j;
+
+		fdr[0] = fdw[0] = fde[0] = 0;
+
+		for (i = 0; i < count; i++) {
+			int event = events[i];
+			int fd = fds[i];
+			if (event & ISOCK_ERECV) fdr[++fdr[0]] = fd;
+			if (event & ISOCK_ESEND) fdw[++fdw[0]] = fd;
+			if (event & ISOCK_ERROR) fde[++fde[0]] = fd;
+			if (fd > maxfd) maxfd = fd;
+		}
+
+		dr = fdr[0]? fdr : NULL;
+		dw = fdw[0]? fdw : NULL;
+		de = fde[0]? fde : NULL;
+
+		tmx.tv_sec = millisec / 1000;
+		tmx.tv_usec = (millisec % 1000) * 1000;
+
+		select(maxfd + 1, (fd_set*)dr, (fd_set*)dw, (fd_set*)de, 
+			(millisec >= 0)? &tmx : 0);
+
+		for (i = 0; i < count; i++) {
+			int event = events[i];
+			int fd = fds[i];
+			int revent = 0;
+			if (event & ISOCK_ERECV) {
+				for (j = 0; j < fdr[0]; j++) {
+					if (fdr[j + 1] == fd) { revent |= ISOCK_ERECV; break; }
+				}
+			}
+			if (event & ISOCK_ESEND) {
+				for (j = 0; j < fdw[0]; j++) {
+					if (fdw[j + 1] == fd) { revent |= ISOCK_ESEND; break; }
+				}
+			}
+			if (event & ISOCK_ERROR) {
+				for (j = 0; j < fde[0]; j++) {
+					if (fde[j + 1] == fd) { revent |= ISOCK_ERROR; break; }
+				}
+			}
+			revents[i] = revent;
+			if (revent) retval++;
+		}
+		#endif
+	}
+
+	return retval;
+}
+
+
+/* ipollfds: poll many sockets with iselect */
+int ipollfds(const int *fds, const int *events, int *revents, int count, 
+	long millisec)
+{
+	#define IPOLLFDS_SIZE 2048
+	char _buffer[IPOLLFDS_SIZE];
+	char *buffer = _buffer;
+	long size;
+	int ret;
+	size = iselect(fds, events, revents, count, millisec, NULL);
+	if (size >= IPOLLFDS_SIZE) buffer = (char*)ikmalloc(size);
+	if (buffer == NULL) return -100;
+	ret = iselect(fds, events, revents, count, millisec, buffer);
+	if (buffer != _buffer) ikfree(buffer);
+	return ret;
+}
+
+/* ikeepalive: tcp keep alive option */
+int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
+{
+	int enable = (keepcnt < 0 || keepidle < 0 || keepintvl < 0)? 0 : 1;
+#if (defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64))
+	#define _SIO_KEEPALIVE_VALS _WSAIOW(IOC_VENDOR, 4)
+	unsigned long keepalive[3], oldkeep[3], retval;
+	OSVERSIONINFO info;
+	int candoit = 0;
+
+	info.dwOSVersionInfoSize = sizeof(info);
+	GetVersionEx(&info);
+
+	if (info.dwPlatformId == VER_PLATFORM_WIN32_NT) {
+		if ((info.dwMajorVersion == 5 && info.dwMinorVersion >= 1) ||
+			(info.dwMajorVersion >= 6)) {
+			candoit = 1;
+		}
+	}
+
+	retval = 1;
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&retval, 
+		sizeof(retval));
+
+	if (candoit) {
+		int ret = 0;
+		keepalive[0] = enable? 1 : 0;
+		keepalive[1] = ((unsigned long)keepidle) * 1000;
+		keepalive[2] = ((unsigned long)keepintvl) * 1000;
+		ret = WSAIoctl((unsigned int)sock, _SIO_KEEPALIVE_VALS, 
+			(LPVOID)keepalive, 12, (LPVOID)oldkeep, 12, &retval, NULL, NULL);
+		if (ret == SOCKET_ERROR) {
+			return -1;
+		}
+	}	else {
+		return -2;
+	}
+	
+
+#elif defined(SOL_TCL) && defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL)
+	unsigned long value;
+	value = 1;
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void*)&value, sizeof(long));
+	value = keepcnt;
+	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (void*)value, sizeof(long));
+	value = keepidle;
+	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (void*)value, sizeof(long));
+	value = keepintvl;
+	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (void*)value, sizeof(long));
+	value = enable;
+#else
+	unsigned long value;
+	value = 1;
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void*)&value, sizeof(long));
+	value = enable;
+	return -1;
+#endif
+
+	return 0;
+}
+
+
 
 /*-------------------------------------------------------------------*/
 /* sockaddr operations                                               */
@@ -842,12 +1054,41 @@ int isockaddr_cmp(const struct sockaddr *a, const struct sockaddr *b)
 
 
 /*===================================================================*/
+/* Memory Hook Definition                                            */
+/*===================================================================*/
+typedef void* (*ikmalloc_fn_t)(size_t);
+typedef void (*ikfree_fn_t)(void *);
+
+static ikmalloc_fn_t ikmalloc_fn = NULL;
+static ikfree_fn_t ikfree_fn = NULL;
+
+/* internal malloc of this module */
+void* ikmalloc(size_t size)
+{
+	if (ikmalloc_fn) return ikmalloc_fn(size);
+	return malloc(size);
+}
+
+/* internal free of this module */
+void ikfree(void *ptr)
+{
+	if (ikfree_fn) ikfree_fn(ptr);
+	else free(ptr);
+}
+
+/* set ikmalloc / ikfree internal implementation */
+void ikmset(void *ikmalloc_fn_ptr, void *ikfree_fn_ptr)
+{
+	ikmalloc_fn = (ikmalloc_fn_t)ikmalloc_fn_ptr;
+	ikfree_fn = (ikfree_fn_t)ikfree_fn_ptr;
+}
+
+
+/*===================================================================*/
 /* Simple Assistant Function                                         */
 /*===================================================================*/
 
-/*-------------------------------------------------------------------*/
-/* init network                                                      */
-/*-------------------------------------------------------------------*/
+/* init network */
 int inet_init(void)
 {
 	#if defined(_WIN32) || defined(WIN32)
@@ -879,20 +1120,13 @@ int inet_init(void)
 	}
 
 	#elif defined(__unix)
-	static int inited = 0;
-	if (inited == 0) {
-		signal(SIGPIPE, SIG_IGN);
-		inited = 1;
-	}
 	#endif
 
 	return 0;
 }
 
 
-/*-------------------------------------------------------------------*/
-/* open udp port                                                     */
-/*-------------------------------------------------------------------*/
+/* open udp port */
 int inet_open_port(unsigned short port, unsigned long ip, int noblock)
 {
 	struct sockaddr addr;
@@ -922,8 +1156,8 @@ int inet_open_port(unsigned short port, unsigned long ip, int noblock)
 		DWORD dwBytesReturned = 0;
 		BOOL bNewBehavior = FALSE;
 		DWORD status;
-		// disable  new behavior using
-		// IOCTL: SIO_UDP_CONNRESET
+		/* disable  new behavior using
+		   IOCTL: SIO_UDP_CONNRESET */
 
 		status = WSAIoctl(sock, _SIO_UDP_CONNRESET_,
 					&bNewBehavior, sizeof(bNewBehavior),  
@@ -933,7 +1167,7 @@ int inet_open_port(unsigned short port, unsigned long ip, int noblock)
 		if (SOCKET_ERROR == (int)status) {
 			DWORD err = WSAGetLastError();
 			if (err == WSAEWOULDBLOCK) {
-				// nothing to doreturn(FALSE);
+				/* nothing to doreturn(FALSE); */
 			} else {
 				printf("WSAIoctl(SIO_UDP_CONNRESET) Error: %d\n", (int)err);
 				iclose(sock);
@@ -952,9 +1186,7 @@ int inet_open_port(unsigned short port, unsigned long ip, int noblock)
 	return sock;
 }
 
-/*-------------------------------------------------------------------*/
-/* set recv buf and send buf                                         */
-/*-------------------------------------------------------------------*/
+/* set recv buf and send buf */
 int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 {
 	long len = sizeof(long);
@@ -978,21 +1210,23 @@ int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 #if defined(_WIN32) || defined(__unix)
 #define IHAVE_SELECT
 #endif
-#if defined(__unix)
+#if defined(__unix) && (!defined(__llvm__))
 #define IHAVE_POLL
 #endif
 #if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#ifndef __llvm__
 #define IHAVE_KEVENT
+#endif
 #endif
 #if defined(linux)
 #define IHAVE_EPOLL
-//#define IHAVE_RTSIG
+/*#define IHAVE_RTSIG*/
 #endif
 #if defined(_WIN32)
-//#define IHAVE_WINCP
+/*#define IHAVE_WINCP*/
 #endif
 #if defined(sun)
-//#define IHAVE_DEVPOLL
+/*#define IHAVE_DEVPOLL*/
 #endif
 
 #if defined(__MACH__) && (!defined(IHAVE_KEVENT))
@@ -1020,8 +1254,8 @@ struct IPOLL_DRIVER
 /* current poll device */
 struct IPOLL_DRIVER IPOLLDRV;	
 
-#define PSTRUCT void					// 定义基本结构体
-#define PDESC(pd) ((PSTRUCT*)(pd))		// 定义结构体转换
+#define PSTRUCT void					/* 定义基本结构体 */
+#define PDESC(pd) ((PSTRUCT*)(pd))		/* 定义结构体转换 */
 
 /* poll file descriptor */
 struct IPOLLFD	
@@ -1106,8 +1340,10 @@ IMUTEX_TYPE ipoll_mutex;
 
 
 /*-------------------------------------------------------------------*/
-/* poll device init                                                  */
+/* poll interfaces                                                   */
 /*-------------------------------------------------------------------*/
+
+/* poll initialize */
 int ipoll_init(int device)
 {
 	int besti, bestv;
@@ -1143,9 +1379,7 @@ int ipoll_init(int device)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* poll device quit                                                  */
-/*-------------------------------------------------------------------*/
+/* poll device quit */
 int ipoll_quit(void)
 {
 	if (ipoll_inited == 0) return 0;
@@ -1155,9 +1389,7 @@ int ipoll_quit(void)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* pfd create                                                        */
-/*-------------------------------------------------------------------*/
+/* pfd create */
 int ipoll_create(ipolld *ipd, int param)
 {
 	ipolld pd;
@@ -1165,11 +1397,11 @@ int ipoll_create(ipolld *ipd, int param)
 	assert(ipd && ipoll_inited);
 	if (ipd == NULL || ipoll_inited == 0) return -1;
 
-	pd = (ipolld)malloc(IPOLLDRV.pdsize);
+	pd = (ipolld)ikmalloc(IPOLLDRV.pdsize);
 	if (pd == NULL) return -2;
 
 	if (IPOLLDRV.init_pd(pd, param)) {
-		free(pd);
+		ikfree(pd);
 		ipd[0] = NULL;
 		return -3;
 	}
@@ -1178,54 +1410,42 @@ int ipoll_create(ipolld *ipd, int param)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* pfd delete                                                        */
-/*-------------------------------------------------------------------*/
+/* pfd delete */
 int ipoll_delete(ipolld ipd)
 {
 	int retval;
 	assert(ipd && ipoll_inited);
 	if (ipd == NULL || ipoll_inited == 0) return -1;
 	retval = IPOLLDRV.destroy_pd(ipd);
-	free(ipd);
+	ikfree(ipd);
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* add file descriptor into pfd                                      */
-/*-------------------------------------------------------------------*/
+/* add file descriptor into pfd */
 int ipoll_add(ipolld ipd, int fd, int mask, void *udata)
 {
 	return IPOLLDRV.poll_add(ipd, fd, mask, udata);
 }
 
-/*-------------------------------------------------------------------*/
-/* delete file descriptor from pfd                                   */
-/*-------------------------------------------------------------------*/
+/* delete file descriptor from pfd */
 int ipoll_del(ipolld ipd, int fd)
 {
 	return IPOLLDRV.poll_del(ipd, fd);
 }
 
-/*-------------------------------------------------------------------*/
-/* set file event                                                    */
-/*-------------------------------------------------------------------*/
+/* set file event */
 int ipoll_set(ipolld ipd, int fd, int mask)
 {
 	return IPOLLDRV.poll_set(ipd, fd, mask);
 }
 
-/*-------------------------------------------------------------------*/
-/* wait for event                                                    */
-/*-------------------------------------------------------------------*/
+/* wait for event */
 int ipoll_wait(ipolld ipd, int millisecond)
 {
 	return IPOLLDRV.poll_wait(ipd, millisecond);
 }
 
-/*-------------------------------------------------------------------*/
-/* get each event                                                    */
-/*-------------------------------------------------------------------*/
+/* get each event */
 int ipoll_event(ipolld ipd, int *fd, int *event, void **udata)
 {
 	int retval;
@@ -1235,13 +1455,7 @@ int ipoll_event(ipolld ipd, int *fd, int *event, void **udata)
 	return retval;
 }
 
-void * (*inet_malloc)(size_t) = NULL;
-void (*inet_free)(void *ptr) = NULL;
-
-
-/*-------------------------------------------------------------------*/
-/* vector init                                                       */
-/*-------------------------------------------------------------------*/
+/* vector init */
 static void ipv_init(struct IPVECTOR *vec)
 {
 	vec->data = NULL;
@@ -1250,24 +1464,19 @@ static void ipv_init(struct IPVECTOR *vec)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* vector destroy                                                    */
-/*-------------------------------------------------------------------*/
+/* vector destroy */
 static void ipv_destroy(struct IPVECTOR *vec)
 {
 	assert(vec);
 	if (vec->data) {
-		if (inet_free) inet_free(vec->data);
-		else free(vec->data);
+		ikfree(vec->data);
 	}
 	vec->data = NULL;
 	vec->length = 0;
 	vec->block = 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* vector resize                                                     */
-/*-------------------------------------------------------------------*/
+/* vector resize */
 static int ipv_resize(struct IPVECTOR *v, long newsize)
 {
 	unsigned char*lptr;
@@ -1289,20 +1498,17 @@ static int ipv_resize(struct IPVECTOR *v, long newsize)
 	}
 
 	if (v->block == 0 || v->data == NULL) {
-		if (inet_malloc) v->data = (unsigned char*)inet_malloc(block);
-		else v->data = (unsigned char*)malloc(block);
+		v->data = (unsigned char*)ikmalloc(block);
 		if (v->data == NULL) return -1;
 		v->length = newsize;
 		v->block = block;
 	}    else {
-		if (inet_malloc) lptr = (unsigned char*)inet_malloc(block);
-		else lptr = (unsigned char*)malloc(block);
+		lptr = (unsigned char*)ikmalloc(block);
 		if (lptr == NULL) return -1;
 
 		min = (v->length <= newsize)? v->length : newsize;
 		memcpy(lptr, v->data, (size_t)min);
-		if (inet_free) inet_free(v->data);
-		else free(v->data);
+		ikfree(v->data);
 
 		v->data = lptr;
 		v->length = newsize;
@@ -1311,9 +1517,7 @@ static int ipv_resize(struct IPVECTOR *v, long newsize)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* ipoll fv init                                                     */
-/*-------------------------------------------------------------------*/
+/* ipoll fv init */
 static void ipoll_fvinit(struct IPOLLFV *fv)
 {
 	fv->fds = NULL;
@@ -1321,9 +1525,7 @@ static void ipoll_fvinit(struct IPOLLFV *fv)
 	ipv_init(&fv->vec);
 }
 
-/*-------------------------------------------------------------------*/
-/* ipoll fv init                                                     */
-/*-------------------------------------------------------------------*/
+/* ipoll fv init */
 static void ipoll_fvdestroy(struct IPOLLFV *fv)
 {
 	assert(fv);
@@ -1332,9 +1534,7 @@ static void ipoll_fvdestroy(struct IPOLLFV *fv)
 	fv->count = 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* ipoll fv init                                                     */
-/*-------------------------------------------------------------------*/
+/* ipoll fv init */
 static int ipoll_fvresize(struct IPOLLFV *fv, long count)
 {
 	int retval;
@@ -1404,24 +1604,22 @@ struct IPOLL_DRIVER IPOLL_SELECT = {
 
 
 /*-------------------------------------------------------------------*/
-/* startup select device                                             */
+/* select device                                                     */
 /*-------------------------------------------------------------------*/
+
+/* startup select device */
 static int ips_startup(void)
 {
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
 /* shutdown select device                                            */
-/*-------------------------------------------------------------------*/
 static int ips_shutdown(void)
 {
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* init select descriptor                                            */
-/*-------------------------------------------------------------------*/
+/* init select descriptor */
 static int ips_init_pd(ipolld ipd, int param)
 {
 	int retval = 0;
@@ -1445,9 +1643,7 @@ static int ips_init_pd(ipolld ipd, int param)
 	return retval;
 }
 
-/*-------------------------------------------------------------------*/
-/* destroy select descriptor                                         */
-/*-------------------------------------------------------------------*/
+/* destroy select descriptor */
 static int ips_destroy_pd(ipolld ipd)
 {
 	PSTRUCT *ps = PDESC(ipd);
@@ -1455,9 +1651,7 @@ static int ips_destroy_pd(ipolld ipd)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* add file descriptor                                               */
-/*-------------------------------------------------------------------*/
+/* add file descriptor */
 static int ips_poll_add(ipolld ipd, int fd, int mask, void *user)
 {
 	PSTRUCT *ps = PDESC(ipd);
@@ -1489,9 +1683,7 @@ static int ips_poll_add(ipolld ipd, int fd, int mask, void *user)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* delete file descriptor                                            */
-/*-------------------------------------------------------------------*/
+/* delete file descriptor */
 static int ips_poll_del(ipolld ipd, int fd)
 {
 	PSTRUCT *ps = PDESC(ipd);
@@ -1514,9 +1706,7 @@ static int ips_poll_del(ipolld ipd, int fd)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* set event mask                                                    */
-/*-------------------------------------------------------------------*/
+/* set event mask */
 static int ips_poll_set(ipolld ipd, int fd, int mask)
 {
 	PSTRUCT *ps = PDESC(ipd);
@@ -1545,9 +1735,7 @@ static int ips_poll_set(ipolld ipd, int fd, int mask)
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* wait event                                                        */
-/*-------------------------------------------------------------------*/
+/* wait event */
 static int ips_poll_wait(ipolld ipd, int timeval)
 {
 	PSTRUCT *ps = PDESC(ipd);
@@ -1568,9 +1756,7 @@ static int ips_poll_wait(ipolld ipd, int timeval)
 	return (nbits == 0)? 0 : nbits;
 }
 
-/*-------------------------------------------------------------------*/
-/* query result                                                      */
-/*-------------------------------------------------------------------*/
+/* query result */
 static int ips_poll_event(ipolld ipd, int *fd, int *event, void **user)
 {
 	PSTRUCT *ps = PDESC(ipd);
@@ -2431,4 +2617,769 @@ static int ipe_poll_event(ipolld ipd, int *fd, int *event, void **user)
 
 
 #endif
+
+
+
+/*===================================================================*/
+/* Condition Variable Cross-Platform Interface                       */
+/*===================================================================*/
+
+#ifdef _WIN32
+/*-------------------------------------------------------------------*/
+/* Win32 Condition Variable Interface                                */
+/*-------------------------------------------------------------------*/
+#define IWAKEALL_0		0
+#define IWAKEALL_1		1
+#define IWAKE			2
+#define IEVENT_COUNT	3
+
+/* condition variable in vista */
+struct IRTL_CONDITION_VARIABLE { void *ptr; };
+typedef struct IRTL_CONDITION_VARIABLE ICONDITION_VARIABLE;
+typedef struct IRTL_CONDITION_VARIABLE* IPCONDITION_VARIABLE;
+
+/* win32 condition variable class */
+typedef struct
+{
+	ICONDITION_VARIABLE cond_var;
+	unsigned int num_waiters[2];
+	int eventid;
+	CRITICAL_SECTION num_waiters_lock;
+	HANDLE events[IEVENT_COUNT];
+}	iConditionVariableWin32;
+
+/* vista condition variable interface */
+typedef void (WINAPI *PInitializeConditionVariable_t)(IPCONDITION_VARIABLE);
+typedef BOOL (WINAPI *PSleepConditionVariableCS_t)(IPCONDITION_VARIABLE,
+                                                 PCRITICAL_SECTION, DWORD);
+typedef void (WINAPI *PWakeConditionVariable_t)(IPCONDITION_VARIABLE);
+typedef void (WINAPI *PWakeAllConditionVariable_t)(IPCONDITION_VARIABLE);
+
+/* vista condition variable define */
+static PInitializeConditionVariable_t PInitializeConditionVariable_o = NULL;
+static PSleepConditionVariableCS_t PSleepConditionVariableCS_o = NULL;
+static PWakeConditionVariable_t PWakeConditionVariable_o = NULL;
+static PWakeAllConditionVariable_t PWakeAllConditionVariable_o = NULL;
+
+/* vista condition variable global */
+static HINSTANCE iposix_kernel32 = NULL;
+static int iposix_cond_win32_inited = 0;
+static int iposix_cond_win32_vista = 0;
+
+/* initialize win32 cv */
+static int iposix_cond_win32_init(iConditionVariableWin32 *cond)
+{
+	cond->eventid = IWAKEALL_0;
+
+	if (iposix_cond_win32_inited == 0) {
+		if (iposix_kernel32 == NULL) {
+			iposix_kernel32 = LoadLibraryA("Kernel32.dll");
+		}
+		if (iposix_kernel32) {
+			PInitializeConditionVariable_o = 
+				(PInitializeConditionVariable_t)GetProcAddress(
+					iposix_kernel32, "InitializeConditionVariable");
+			PSleepConditionVariableCS_o = 
+				(PSleepConditionVariableCS_t)GetProcAddress(
+					iposix_kernel32, "SleepConditionVariableCS");
+			PWakeConditionVariable_o = 
+				(PWakeConditionVariable_t)GetProcAddress(
+					iposix_kernel32, "WakeConditionVariable");
+			PWakeAllConditionVariable_o =
+				(PWakeAllConditionVariable_t)GetProcAddress(
+					iposix_kernel32, "WakeAllConditionVariable");
+
+			if (PInitializeConditionVariable_o &&
+				PSleepConditionVariableCS_o &&
+				PWakeConditionVariable_o &&
+				PWakeAllConditionVariable_o) {
+			#if 0
+				iposix_cond_win32_vista = 1;
+			#endif
+			}
+		}
+		iposix_cond_win32_inited = 1;
+	}
+
+	if (iposix_cond_win32_vista == 0) {
+		memset(&cond->num_waiters[0], 0, sizeof(cond->num_waiters));
+		InitializeCriticalSection(&cond->num_waiters_lock);
+		cond->events[IWAKEALL_0] = CreateEvent(NULL, TRUE, FALSE, NULL);
+		cond->events[IWAKEALL_1] = CreateEvent(NULL, TRUE, FALSE, NULL);
+		cond->events[IWAKE] = CreateEvent(NULL, FALSE, FALSE, NULL);
+	}
+	else {
+		PInitializeConditionVariable_o(&cond->cond_var);
+		cond->events[IWAKEALL_0] = NULL;
+		cond->events[IWAKEALL_1] = NULL;
+		cond->events[IWAKE] = NULL;
+	}
+	return 0;
+}
+
+/* destroy win32 cv */
+static void iposix_cond_win32_destroy(iConditionVariableWin32 *cond)
+{
+	if (iposix_cond_win32_vista == 0) {
+		CloseHandle(cond->events[IWAKEALL_0]);
+		CloseHandle(cond->events[IWAKEALL_1]);
+		CloseHandle(cond->events[IWAKE]);
+		DeleteCriticalSection(&cond->num_waiters_lock);
+	}
+	else {
+	}
+}
+
+/* sleep win32 cv */
+static int iposix_cond_win32_sleep_cs_time(iConditionVariableWin32 *cond, 
+	IMUTEX_TYPE *mutex, unsigned long millisec)
+{
+	if (iposix_cond_win32_vista == 0) {
+		int eventid;
+		HANDLE events[2];
+		DWORD result;
+		int retval;
+		int lastwait;
+
+		EnterCriticalSection(&cond->num_waiters_lock);
+		eventid = (cond->eventid == IWAKEALL_0)? IWAKEALL_1 : IWAKEALL_0;
+		cond->num_waiters[eventid]++;
+		LeaveCriticalSection(&cond->num_waiters_lock);
+
+		IMUTEX_UNLOCK(mutex);
+		
+		events[0] = cond->events[IWAKE];
+		events[1] = cond->events[eventid];
+		
+		result = WaitForMultipleObjects(2, events, FALSE, millisec);
+		retval = (result != WAIT_TIMEOUT)? 1 : 0;
+
+		EnterCriticalSection(&cond->num_waiters_lock);
+
+		cond->num_waiters[eventid]--;
+		lastwait = (result == WAIT_OBJECT_0 + 1) && 
+			(cond->num_waiters[eventid] == 0);
+
+        LeaveCriticalSection(&cond->num_waiters_lock);
+
+		if (lastwait) {
+			ResetEvent(cond->events[eventid]);
+		}
+
+		IMUTEX_LOCK(mutex);
+
+		return retval;
+	}	
+	else {
+		int retval = (int)PSleepConditionVariableCS_o(
+			&cond->cond_var, mutex, millisec);
+		return retval == 0? 0 : 1;
+	}
+}
+
+/* sleep win32 cv */
+static int iposix_cond_win32_sleep_cs(iConditionVariableWin32 *cond, 
+	IMUTEX_TYPE *mutex)
+{
+	iposix_cond_win32_sleep_cs_time(cond, mutex, INFINITE);
+	return 1;
+}
+
+/* wake cv */
+static void iposix_cond_win32_wake(iConditionVariableWin32 *cond)
+{
+	if (iposix_cond_win32_vista == 0) {
+		int havewaiters = 0;
+		EnterCriticalSection(&cond->num_waiters_lock);
+		havewaiters = (cond->num_waiters[IWAKEALL_0] > 0) ||
+			(cond->num_waiters[IWAKEALL_1] > 0);
+		LeaveCriticalSection(&cond->num_waiters_lock);
+		if (havewaiters) {
+			SetEvent(cond->events[IWAKE]);
+		}
+	}
+	else {
+		PWakeConditionVariable_o(&cond->cond_var);
+	}
+}
+
+/* wake all cv */
+static void iposix_cond_win32_wake_all(iConditionVariableWin32 *cond)
+{
+	if (iposix_cond_win32_vista == 0) {
+		int havewaiters = 0;
+		int eventid;
+		EnterCriticalSection(&cond->num_waiters_lock);
+		cond->eventid = (cond->eventid == IWAKEALL_0)? 
+			IWAKEALL_1 : IWAKEALL_0;
+		eventid = cond->eventid;
+		havewaiters = (cond->num_waiters[eventid] > 0)? 1 : 0;
+		LeaveCriticalSection(&cond->num_waiters_lock);
+		if (havewaiters) {
+			SetEvent(cond->events[eventid]);
+		}
+	}
+	else {
+		PWakeAllConditionVariable_o(&cond->cond_var);
+	}
+}
+
+#else
+/*-------------------------------------------------------------------*/
+/* Posix Condition Variable Interface                                */
+/*-------------------------------------------------------------------*/
+typedef struct
+{
+	pthread_cond_t cond;
+}	iConditionVariablePosix;
+
+static int iposix_cond_posix_init(iConditionVariablePosix *cond)
+{
+	int result;
+#ifdef ICLOCK_TYPE_REALTIME
+	result = pthread_cond_init(&cond->cond, NULL);
+#else
+	pthread_condattr_t condAttr;
+	result = pthread_condattr_init(&condAttr);
+	if (result != 0) return -1;
+	result = pthread_condattr_setclock(&condAttr, CLOCK_MONOTONIC);
+	if (result != 0) return -1;
+	result = pthread_cond_init(&cond->cond, &condAttr);
+	if (result != 0) return -1;
+	result = pthread_condattr_destroy(&condAttr);
+	if (result != 0) return -1;
+#endif
+	return result;
+}
+
+static void iposix_cond_posix_destroy(iConditionVariablePosix *cond)
+{
+	pthread_cond_destroy(&cond->cond);
+}
+
+static int iposix_cond_posix_sleep_cs(iConditionVariablePosix *cond, 
+	IMUTEX_TYPE *mutex)
+{
+	pthread_cond_wait(&cond->cond, mutex);
+	return 1;
+}
+
+static int iposix_cond_posix_sleep_cs_time(iConditionVariablePosix *cond, 
+	IMUTEX_TYPE *mutex, unsigned long millisec)
+{
+	const unsigned long INFINITE = 0xFFFFFFFF;
+	const int NANOSECONDS_PER_SECOND       = 1000000000;
+	const int NANOSECONDS_PER_MILLISECOND  = 1000000;
+	const int MILLISECONDS_PER_SECOND      = 1000;
+#ifndef __linux__
+	#ifdef __imac__
+	const int MICROSECONDS_PER_MILLISECOND = 1000;
+	#endif
+#endif
+
+	if (millisec != INFINITE) {
+		struct timespec ts;
+		int res;
+	#ifndef __imac__
+	#ifdef ICLOCK_TYPE_REALTIME
+		clock_gettime(CLOCK_REALTIME, &ts);
+	#else
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+	#endif
+	#else
+		struct timeval tv;
+		gettimeofday(&tv, 0);
+		ts.tv_sec  = tv.tv_sec;
+		ts.tv_nsec = tv.tv_usec * MICROSECONDS_PER_MILLISECOND;
+	#endif
+
+		ts.tv_sec += millisec / MILLISECONDS_PER_SECOND;
+		ts.tv_nsec += 
+			(millisec - ((millisec / MILLISECONDS_PER_SECOND) *
+			MILLISECONDS_PER_SECOND)) * NANOSECONDS_PER_MILLISECOND;
+
+		if (ts.tv_nsec >= NANOSECONDS_PER_SECOND) {
+			ts.tv_sec += ts.tv_nsec / NANOSECONDS_PER_SECOND;
+			ts.tv_nsec %= NANOSECONDS_PER_SECOND;
+		}
+		res = pthread_cond_timedwait(&cond->cond, mutex, &ts);
+		return (res == ETIMEDOUT) ? 0 : 1;
+	}
+	else {
+		pthread_cond_wait(&cond->cond, mutex);
+		return 1;
+	}
+}
+
+static void iposix_cond_posix_wake(iConditionVariablePosix *cond)
+{
+	pthread_cond_signal(&cond->cond);
+}
+
+static void iposix_cond_posix_wake_all(iConditionVariablePosix *cond)
+{
+	pthread_cond_broadcast(&cond->cond);
+}
+
+#endif
+
+
+/*-------------------------------------------------------------------*/
+/* Condition Variable Interface                                      */
+/*-------------------------------------------------------------------*/
+struct iConditionVariable
+{
+#ifdef _WIN32
+	iConditionVariableWin32 cond;
+#else
+	iConditionVariablePosix cond;
+#endif
+};
+
+
+iConditionVariable *iposix_cond_new(void)
+{
+	iConditionVariable *cond;
+	int result;
+	cond = (struct iConditionVariable*)ikmalloc(sizeof(iConditionVariable));
+	if (cond == NULL) return NULL;
+#ifdef _WIN32
+	result = iposix_cond_win32_init(&cond->cond);
+#else
+	result = iposix_cond_posix_init(&cond->cond);
+#endif
+	if (result != 0) {
+		ikfree(cond);
+		return NULL;
+	}
+	return cond;
+}
+
+void iposix_cond_delete(iConditionVariable *cond)
+{
+#ifdef _WIN32
+	iposix_cond_win32_destroy(&cond->cond);
+#else
+	iposix_cond_posix_destroy(&cond->cond);
+#endif
+	memset(cond, 0, sizeof(struct iConditionVariable));
+	ikfree(cond);
+}
+
+int iposix_cond_sleep_cs_time(iConditionVariable *cond, 
+	IMUTEX_TYPE *mutex, unsigned long millisec)
+{
+#ifdef _WIN32
+	return iposix_cond_win32_sleep_cs_time(&cond->cond, mutex, millisec);
+#else
+	return iposix_cond_posix_sleep_cs_time(&cond->cond, mutex, millisec);
+#endif
+}
+
+int iposix_cond_sleep_cs(iConditionVariable *cond, 
+	IMUTEX_TYPE *mutex)
+{
+#ifdef _WIN32
+	return iposix_cond_win32_sleep_cs(&cond->cond, mutex);
+#else
+	return iposix_cond_posix_sleep_cs(&cond->cond, mutex);
+#endif
+}
+
+void iposix_cond_wake(iConditionVariable *cond)
+{
+#ifdef _WIN32
+	iposix_cond_win32_wake(&cond->cond);
+#else
+	iposix_cond_posix_wake(&cond->cond);
+#endif
+}
+
+void iposix_cond_wake_all(iConditionVariable *cond)
+{
+#ifdef _WIN32
+	iposix_cond_win32_wake_all(&cond->cond);
+#else
+	iposix_cond_posix_wake_all(&cond->cond);
+#endif
+}
+
+
+/*===================================================================*/
+/* Event Cross-Platform Interface                                    */
+/*===================================================================*/
+
+struct iEventPosix
+{
+	iConditionVariable *cond;
+	IMUTEX_TYPE mutex;
+	int signal;
+};
+
+
+/* create posix event */
+iEventPosix *iposix_event_new(void)
+{
+	iEventPosix *event;
+	event = (iEventPosix*)ikmalloc(sizeof(iEventPosix));
+	if (event == NULL) return NULL;
+	event->cond = iposix_cond_new();
+	if (event->cond == NULL) {
+		ikfree(event);
+		return NULL;
+	}
+	IMUTEX_INIT(&event->mutex);
+	event->signal = 0;
+	return event;
+}
+
+/* delete posix event */
+void iposix_event_delete(iEventPosix *event)
+{
+	if (event) {
+		if (event->cond) iposix_cond_delete(event->cond);
+		event->cond = NULL;
+		IMUTEX_DESTROY(&event->mutex);
+		event->signal = 0;
+		ikfree(event);
+	}
+}
+
+/* set signal to 1 */
+void iposix_event_set(iEventPosix *event)
+{
+	assert(event && event->cond);
+	IMUTEX_LOCK(&event->mutex);
+	event->signal = 1;
+	iposix_cond_wake_all(event->cond);
+	IMUTEX_UNLOCK(&event->mutex);
+}
+
+/* set signal to 0 */
+void iposix_event_reset(iEventPosix *event)
+{
+	assert(event && event->cond);
+	IMUTEX_LOCK(&event->mutex);
+	event->signal = 0;
+	IMUTEX_UNLOCK(&event->mutex);
+}
+
+/* sleep until signal is 1(returns 1), or timeout(returns 0) */
+int iposix_event_wait(iEventPosix *event, unsigned long millisec)
+{
+	int result = 0;
+	assert(event && event->cond);
+	IMUTEX_LOCK(&event->mutex);
+	if (event->signal == 0) {
+		if (millisec != IEVENT_INFINITE) {
+			while (event->signal == 0) {
+				IUINT32 clock = iclock();
+				IUINT32 last;
+				iposix_cond_sleep_cs_time(event->cond, &event->mutex, millisec);
+				last = (iclock() - clock);
+				if (millisec <= (unsigned long)last) {
+					break;
+				}	else {
+					millisec -= (unsigned long)last;
+				}
+			}
+		}	else {
+			while (event->signal == 0) {
+				iposix_cond_sleep_cs(event->cond, &event->mutex);
+			}
+		}
+	}
+	if (event->signal) {
+		result = 1;
+	}
+	event->signal = 0;
+	IMUTEX_UNLOCK(&event->mutex);
+	return result;
+}
+
+
+/*===================================================================*/
+/* ReadWriteLock Cross-Platform Interface                            */
+/*===================================================================*/
+struct iRwLockGeneric
+{
+	IMUTEX_TYPE mutex;
+	iConditionVariable *read_cond;
+	iConditionVariable *write_cond;
+	unsigned int readers_active;
+	unsigned int writers_active;
+	unsigned int readers_waiting;
+	unsigned int writers_waiting;
+};
+
+typedef struct iRwLockGeneric iRwLockGeneric;
+
+static iRwLockGeneric *iposix_rwlock_new_generic(void)
+{
+	iRwLockGeneric *rwlock;
+	rwlock = (iRwLockGeneric*)ikmalloc(sizeof(iRwLockGeneric));
+	if (rwlock == NULL) return NULL;
+	rwlock->read_cond = iposix_cond_new();
+	if (rwlock->read_cond == NULL) {
+		ikfree(rwlock);
+		return NULL;
+	}
+	rwlock->write_cond = iposix_cond_new();
+	if (rwlock->write_cond == NULL) {
+		iposix_cond_delete(rwlock->read_cond);
+		ikfree(rwlock);
+		return NULL;
+	}
+	IMUTEX_INIT(&rwlock->mutex);
+	rwlock->readers_active = 0;
+	rwlock->writers_active = 0;
+	rwlock->readers_waiting = 0;
+	rwlock->writers_waiting = 0;
+	return rwlock;
+}
+
+static void iposix_rwlock_delete_generic(iRwLockGeneric *rwlock)
+{
+	if (rwlock) {
+		if (rwlock->read_cond) iposix_cond_delete(rwlock->read_cond);
+		if (rwlock->write_cond) iposix_cond_delete(rwlock->write_cond);
+		rwlock->read_cond = NULL;
+		rwlock->write_cond = NULL;
+		IMUTEX_DESTROY(&rwlock->mutex);
+		ikfree(rwlock);
+	}
+}
+
+static void iposix_rwlock_w_lock_generic(iRwLockGeneric *rwlock)
+{
+	IMUTEX_LOCK(&rwlock->mutex);
+	if (rwlock->writers_active || rwlock->readers_active > 0) {
+		rwlock->writers_waiting++;
+		while (rwlock->writers_active || rwlock->readers_active > 0) {
+			iposix_cond_sleep_cs(rwlock->write_cond, &rwlock->mutex);
+		}
+		rwlock->writers_waiting--;
+	}
+	rwlock->writers_active = 1;
+	IMUTEX_UNLOCK(&rwlock->mutex);
+}
+
+static void iposix_rwlock_w_unlock_generic(iRwLockGeneric *rwlock)
+{
+	IMUTEX_LOCK(&rwlock->mutex);
+	rwlock->writers_active = 0;
+	if (rwlock->writers_waiting > 0) 
+		iposix_cond_wake(rwlock->write_cond);
+	else if (rwlock->readers_waiting > 0)
+		iposix_cond_wake_all(rwlock->read_cond);
+	IMUTEX_UNLOCK(&rwlock->mutex);
+}
+
+static void iposix_rwlock_r_lock_generic(iRwLockGeneric *rwlock)
+{
+	IMUTEX_LOCK(&rwlock->mutex);
+	if (rwlock->writers_active || rwlock->writers_waiting > 0) {
+		rwlock->readers_waiting++;
+		while (rwlock->writers_active || rwlock->writers_waiting > 0) {
+			iposix_cond_sleep_cs(rwlock->read_cond, &rwlock->mutex);
+		}
+		rwlock->readers_waiting--;
+	}
+	rwlock->readers_active++;
+	IMUTEX_UNLOCK(&rwlock->mutex);
+}
+
+static void iposix_rwlock_r_unlock_generic(iRwLockGeneric *rwlock)
+{
+	IMUTEX_LOCK(&rwlock->mutex);
+	rwlock->readers_active--;
+	if (rwlock->readers_active == 0 && rwlock->writers_waiting > 0) 
+		iposix_cond_wake(rwlock->write_cond);
+	IMUTEX_UNLOCK(&rwlock->mutex);
+}
+
+
+/*-------------------------------------------------------------------*/
+/* rwlock cross-platform                                             */
+/*-------------------------------------------------------------------*/
+#ifdef _WIN32
+typedef struct 
+{
+	void *ptr;
+}	IRTL_SRWLOCK, *IPRTL_SRWLOCK;
+#endif
+
+
+struct iRwLockPosix
+{
+#ifdef _WIN32
+	IRTL_SRWLOCK lock;
+	iRwLockGeneric *rwlock;
+#elif defined(IHAVE_PTHREAD_RWLOCK)
+	pthread_rwlock_t lock;
+#else
+	iRwLockGeneric *rwlock;
+#endif
+};
+
+#ifdef _WIN32
+typedef void (WINAPI *PInitializeSRWLock_t)(IPRTL_SRWLOCK);
+typedef void (WINAPI *PAcquireSRWLockExclusive_t)(IPRTL_SRWLOCK);
+typedef void (WINAPI *PReleaseSRWLockExclusive_t)(IPRTL_SRWLOCK);
+typedef void (WINAPI *PAcquireSRWLockShared_t)(IPRTL_SRWLOCK);
+typedef void (WINAPI *PReleaseSRWLockShared_t)(IPRTL_SRWLOCK);
+
+PInitializeSRWLock_t PInitializeSRWLock_o = NULL;
+PAcquireSRWLockExclusive_t PAcquireSRWLockExclusive_o = NULL;
+PReleaseSRWLockExclusive_t PReleaseSRWLockExclusive_o = NULL;
+PAcquireSRWLockShared_t PAcquireSRWLockShared_o = NULL;
+PReleaseSRWLockShared_t PReleaseSRWLockShared_o = NULL;
+
+static int iposix_rwlock_inited = 0;
+static int iposix_rwlock_vista = 0;
+#endif
+
+
+iRwLockPosix *iposix_rwlock_new(void)
+{
+	iRwLockPosix *rwlock;
+	int success = 0;
+	rwlock = (iRwLockPosix*)ikmalloc(sizeof(iRwLockPosix));
+	if (rwlock == NULL) return NULL;
+
+#ifdef _WIN32
+
+	if (iposix_rwlock_inited == 0) {
+		if (iposix_kernel32 == NULL) {
+			iposix_kernel32 = LoadLibraryA("Kernel32.dll");
+		}
+		if (iposix_kernel32) {
+			PInitializeSRWLock_o = (PInitializeSRWLock_t)
+				GetProcAddress(iposix_kernel32, "InitializeSRWLock");
+			PAcquireSRWLockExclusive_o = (PAcquireSRWLockExclusive_t)
+				GetProcAddress(iposix_kernel32, "AcquireSRWLockExclusive");
+			PReleaseSRWLockExclusive_o = (PReleaseSRWLockExclusive_t)
+				GetProcAddress(iposix_kernel32, "ReleaseSRWLockExclusive");
+			PAcquireSRWLockShared_o = (PAcquireSRWLockShared_t)
+				GetProcAddress(iposix_kernel32, "AcquireSRWLockShared");
+			PReleaseSRWLockShared_o = (PReleaseSRWLockShared_t)
+				GetProcAddress(iposix_kernel32, "ReleaseSRWLockShared");
+			if (PInitializeSRWLock_o &&
+				PAcquireSRWLockExclusive_o && 
+				PReleaseSRWLockExclusive_o && 
+				PAcquireSRWLockShared_o && 
+				PReleaseSRWLockShared_o) {
+			#if 0
+				iposix_rwlock_vista = 1;
+			#endif
+			}
+		}
+		iposix_rwlock_inited = 1;
+	}
+
+	if (iposix_rwlock_vista == 0) {
+		rwlock->rwlock = iposix_rwlock_new_generic();
+		if (rwlock->rwlock != NULL) success = 1;
+	}	else {
+		PInitializeSRWLock_o(&rwlock->lock);
+		success = 1;
+	}
+
+#elif defined(IHAVE_PTHREAD_RWLOCK)
+	pthread_rwlock_init(&rwlock->lock);
+	success = 1;
+
+#else
+	rwlock->rwlock = iposix_rwlock_new_generic();
+	if (rwlock->rwlock != NULL) success = 1;
+#endif
+
+	if (success == 0) {
+		ikfree(rwlock);
+		return NULL;
+	}
+
+	return rwlock;
+}
+
+void iposix_rwlock_delete(iRwLockPosix *rwlock)
+{
+	if (rwlock) {
+#ifdef _WIN32
+		if (iposix_rwlock_vista == 0) {
+			iposix_rwlock_delete_generic(rwlock->rwlock);
+			rwlock->rwlock = NULL;
+		}	else {
+			/* nothing todo with IRTL_SRWLOCK */
+		}
+#elif defined(IHAVE_PTHREAD_RWLOCK)
+		pthread_rwlock_destroy(&rwlock->lock);
+#else
+		iposix_rwlock_delete_generic(rwlock->rwlock);
+		rwlock->rwlock = NULL;
+#endif
+		ikfree(rwlock);
+	}
+}
+
+void iposix_rwlock_w_lock(iRwLockPosix *rwlock)
+{
+#ifdef _WIN32
+	if (iposix_rwlock_vista == 0) {
+		iposix_rwlock_w_lock_generic(rwlock->rwlock);
+	}	else {
+		PAcquireSRWLockExclusive_o(&rwlock->lock);
+	}
+#elif defined(IHAVE_PTHREAD_RWLOCK)
+	pthread_rwlock_wrlock(&rwlock->lock);
+#else
+	iposix_rwlock_w_lock_generic(rwlock->rwlock);
+#endif
+}
+
+void iposix_rwlock_w_unlock(iRwLockPosix *rwlock)
+{
+#ifdef _WIN32
+	if (iposix_rwlock_vista == 0) {
+		iposix_rwlock_w_unlock_generic(rwlock->rwlock);
+	}	else {
+		PReleaseSRWLockExclusive_o(&rwlock->lock);
+	}
+#elif defined(IHAVE_PTHREAD_RWLOCK)
+	pthread_rwlock_unlock(&rwlock->lock);
+#else
+	iposix_rwlock_w_unlock_generic(rwlock->rwlock);
+#endif
+}
+
+void iposix_rwlock_r_lock(iRwLockPosix *rwlock)
+{
+#ifdef _WIN32
+	if (iposix_rwlock_vista == 0) {
+		iposix_rwlock_r_lock_generic(rwlock->rwlock);
+	}	else {
+		PAcquireSRWLockShared_o(&rwlock->lock);
+	}
+#elif defined(IHAVE_PTHREAD_RWLOCK)
+	pthread_rwlock_rlock(&rwlock->lock);
+#else
+	iposix_rwlock_r_lock_generic(rwlock->rwlock);
+#endif
+}
+
+void iposix_rwlock_r_unlock(iRwLockPosix *rwlock)
+{
+#ifdef _WIN32
+	if (iposix_rwlock_vista == 0) {
+		iposix_rwlock_r_unlock_generic(rwlock->rwlock);
+	}	else {
+		PReleaseSRWLockShared_o(&rwlock->lock);
+	}
+#elif defined(IHAVE_PTHREAD_RWLOCK)
+	pthread_rwlock_unlock(&rwlock->lock);
+#else
+	iposix_rwlock_r_unlock_generic(rwlock->rwlock);
+#endif
+}
+
 
