@@ -46,7 +46,6 @@
 #if defined(__unix) || defined(unix) || defined(__MACH__)
 #include <string.h>
 #include <unistd.h>
-#include <signal.h>
 #include <errno.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -54,10 +53,8 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
-#include <netinet/tcp.h>
-#include <netinet/in.h>
 #include <netdb.h>
-
+#include <netinet/in.h>
 
 #ifndef __unix
 #define __unix
@@ -108,40 +105,97 @@ typedef SOCKET Socket;
 #ifndef EWOULDBLOCK
 #define EWOULDBLOCK             WSAEWOULDBLOCK
 #endif
-
 #ifndef EAGAIN
 #define EAGAIN                  WSAEWOULDBLOCK
 #endif
-
+#ifndef EINPROGRESS
 #define EINPROGRESS             WSAEINPROGRESS
+#endif
+#ifndef EALREADY
 #define EALREADY                WSAEALREADY
+#endif
+#ifndef ENOTSOCK
 #define ENOTSOCK                WSAENOTSOCK
+#endif
+#ifndef EDESTADDRREQ
 #define EDESTADDRREQ            WSAEDESTADDRREQ
+#endif
+#ifndef EMSGSIZE
 #define EMSGSIZE                WSAEMSGSIZE
+#endif 
+#ifndef EPROTOTYPE
 #define EPROTOTYPE              WSAEPROTOTYPE
+#endif
+#ifndef ENOPROTOOPT
 #define ENOPROTOOPT             WSAENOPROTOOPT
+#endif
+#ifndef EPROTONOSUPPORT
 #define EPROTONOSUPPORT         WSAEPROTONOSUPPORT
+#endif
+#ifndef ESOCKTNOSUPPORT
 #define ESOCKTNOSUPPORT         WSAESOCKTNOSUPPORT
+#endif
+#ifndef EOPNOTSUPP
 #define EOPNOTSUPP              WSAEOPNOTSUPP
+#endif
+#ifndef EPFNOSUPPORT
 #define EPFNOSUPPORT            WSAEPFNOSUPPORT
+#endif
+#ifndef EAFNOSUPPORT
 #define EAFNOSUPPORT            WSAEAFNOSUPPORT
+#endif
+#ifndef EADDRINUSE
 #define EADDRINUSE              WSAEADDRINUSE
+#endif
+#ifndef EADDRNOTAVAIL
 #define EADDRNOTAVAIL           WSAEADDRNOTAVAIL
+#endif
+
+#ifndef ENETDOWN
 #define ENETDOWN                WSAENETDOWN
+#endif
+#ifndef ENETUNREACH
 #define ENETUNREACH             WSAENETUNREACH
+#endif
+#ifndef ENETRESET
 #define ENETRESET               WSAENETRESET
+#endif
+#ifndef ECONNABORTED
 #define ECONNABORTED            WSAECONNABORTED
+#endif
+#ifndef ECONNRESET
 #define ECONNRESET              WSAECONNRESET
+#endif
+#ifndef ENOBUFS
 #define ENOBUFS                 WSAENOBUFS
+#endif
+#ifndef EISCONN
 #define EISCONN                 WSAEISCONN
+#endif
+#ifndef ENOTCONN
 #define ENOTCONN                WSAENOTCONN
+#endif
+#ifndef ESHUTDOWN
 #define ESHUTDOWN               WSAESHUTDOWN
+#endif
+#ifndef ETOOMANYREFS
 #define ETOOMANYREFS            WSAETOOMANYREFS
+#endif
+#ifndef ETIMEDOUT
 #define ETIMEDOUT               WSAETIMEDOUT
+#endif
+#ifndef ECONNREFUSED
 #define ECONNREFUSED            WSAECONNREFUSED
+#endif
+#ifndef ELOOP
 #define ELOOP                   WSAELOOP
+#endif
+#ifndef EHOSTDOWN
 #define EHOSTDOWN               WSAEHOSTDOWN
+#endif
+#ifndef EHOSTUNREACH
 #define EHOSTUNREACH            WSAEHOSTUNREACH
+#endif
 #define EPROCLIM                WSAEPROCLIM
 #define EUSERS                  WSAEUSERS
 #define EDQUOT                  WSAEDQUOT
@@ -165,6 +219,56 @@ typedef SOCKET Socket;
 	#ifndef __i386__
 	#define __i386__
 	#endif
+#endif
+
+#if (defined(__MACH__) && defined(__APPLE__)) || defined(__MACOS__)
+	#ifndef __imac__
+	#define __imac__
+	#endif
+#endif
+
+/* check ICLOCK_TYPE_REALTIME for using pthread_condattr_setclock */
+#if defined(__CYGWIN__)
+	#define ICLOCK_TYPE_REALTIME
+#endif
+
+
+/*===================================================================*/
+/* 32BIT INTEGER DEFINITION                                          */
+/*===================================================================*/
+#ifndef __INTEGER_32_BITS__
+#define __INTEGER_32_BITS__
+#if defined(_WIN64) || defined(WIN64) || defined(__amd64__) || \
+	defined(__x86_64) || defined(__x86_64__) || defined(_M_IA64) || \
+	defined(_M_AMD64)
+	typedef unsigned int ISTDUINT32;
+	typedef int ISTDINT32;
+#elif defined(_WIN32) || defined(WIN32) || defined(__i386__) || \
+	defined(__i386) || defined(_M_X86)
+	typedef unsigned long ISTDUINT32;
+	typedef long ISTDINT32;
+#elif defined(__MACOS__)
+	typedef UInt32 ISTDUINT32;
+	typedef SInt32 ISTDINT32;
+#elif defined(__APPLE__) && defined(__MACH__)
+	#include <sys/types.h>
+	typedef u_int32_t ISTDUINT32;
+	typedef int32_t ISTDINT32;
+#elif defined(__BEOS__)
+	#include <sys/inttypes.h>
+	typedef u_int32_t ISTDUINT32;
+	typedef int32_t ISTDINT32;
+#elif (defined(_MSC_VER) || defined(__BORLANDC__)) && (!defined(__MSDOS__))
+	typedef unsigned __int32 ISTDUINT32;
+	typedef __int32 ISTDINT32;
+#elif defined(__GNUC__)
+	#include <stdint.h>
+	typedef uint32_t ISTDUINT32;
+	typedef int32_t ISTDINT32;
+#else 
+	typedef unsigned long ISTDUINT32; 
+	typedef long ISTDINT32;
+#endif
 #endif
 
 
@@ -198,14 +302,34 @@ typedef SOCKET Socket;
 #endif
 #endif
 
+#ifndef __IINT8_DEFINED
+#define __IINT8_DEFINED
+typedef char IINT8;
+#endif
+
+#ifndef __IUINT8_DEFINED
+#define __IUINT8_DEFINED
+typedef unsigned char IUINT8;
+#endif
+
+#ifndef __IUINT16_DEFINED
+#define __IUINT16_DEFINED
+typedef unsigned short IUINT16;
+#endif
+
+#ifndef __IINT16_DEFINED
+#define __IINT16_DEFINED
+typedef short IINT16;
+#endif
+
 #ifndef __IINT32_DEFINED
 #define __IINT32_DEFINED
-typedef long IINT32;
+typedef ISTDINT32 IINT32;
 #endif
 
 #ifndef __IUINT32_DEFINED
 #define __IUINT32_DEFINED
-typedef unsigned long IUINT32;
+typedef ISTDUINT32 IUINT32;
 #endif
 
 #ifndef __IINT64_DEFINED
@@ -414,7 +538,18 @@ int ienable(int fd, int mode);
 int idisable(int fd, int mode);
 
 /* poll event */
-int ipollfd(int sock, int event, long millsec);
+int ipollfd(int sock, int event, long millisec);
+
+/* iselect: fds(fd set), events(mask), revents(received events) */
+int iselect(const int *fds, const int *events, int *revents, int count, 
+	long millisec, void *workmem);
+
+/* ipollfds: poll many sockets with iselect */
+int ipollfds(const int *fds, const int *events, int *revents, int count, 
+	long millisec);
+
+/* ikeepalive: tcp keep alive option */
+int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl);
 
 /* send all data */
 int isendall(int sock, const void *buf, long size);
@@ -461,6 +596,19 @@ char *isockaddr_str(const struct sockaddr *a, char *text);
 /* compare two addresses */
 int isockaddr_cmp(const struct sockaddr *a, const struct sockaddr *b);
 
+
+/*===================================================================*/
+/* Memory Hook Definition                                            */
+/*===================================================================*/
+
+/* internal malloc of this module */
+void* ikmalloc(size_t size);
+
+/* internal free of this module */
+void ikfree(void *ptr);
+
+/* set ikmalloc / ikfree internal implementation */
+void ikmset(void *ikmalloc_func, void *ikfree_func);
 
 
 /*===================================================================*/
@@ -554,6 +702,72 @@ int ipoll_wait(ipolld ipd, int millisecond);
 /* query one event: loop call it until it returns non-zero */
 int ipoll_event(ipolld ipd, int *fd, int *event, void **udata);
 
+
+
+/*===================================================================*/
+/* Condition Variable Cross-Platform Interface                       */
+/*===================================================================*/
+struct iConditionVariable;
+typedef struct iConditionVariable iConditionVariable;
+
+iConditionVariable *iposix_cond_new(void);
+
+void iposix_cond_delete(iConditionVariable *cond);
+
+/* sleep and wait, returns 1 for been waked up, 0 for timeout */
+int iposix_cond_sleep_cs_time(iConditionVariable *cond, 
+	IMUTEX_TYPE *mutex, unsigned long millisec);
+
+/* sleep and wait, returns 1 for been waked up, 0 for timeout */
+int iposix_cond_sleep_cs(iConditionVariable *cond, 
+	IMUTEX_TYPE *mutex);
+
+/* wake up one sleeped thread */
+void iposix_cond_wake(iConditionVariable *cond);
+
+/* wake up all sleeped thread */
+void iposix_cond_wake_all(iConditionVariable *cond);
+
+
+/*===================================================================*/
+/* Event Cross-Platform Interface                                    */
+/*===================================================================*/
+struct iEventPosix;
+typedef struct iEventPosix iEventPosix;
+
+#define IEVENT_INFINITE 0xffffffff
+
+iEventPosix *iposix_event_new(void);
+
+void iposix_event_delete(iEventPosix *event);
+
+/* set signal to 1 */
+void iposix_event_set(iEventPosix *event);
+
+/* set signal to 0 */
+void iposix_event_reset(iEventPosix *event);
+
+/* sleep until signal is 1(returns 1), or timeout(returns 0) */
+int iposix_event_wait(iEventPosix *event, unsigned long millisec);
+
+
+/*===================================================================*/
+/* ReadWriteLock Cross-Platform Interface                            */
+/*===================================================================*/
+struct iRwLockPosix;
+typedef struct iRwLockPosix iRwLockPosix;
+
+iRwLockPosix *iposix_rwlock_new(void);
+
+void iposix_rwlock_delete(iRwLockPosix *rwlock);
+
+void iposix_rwlock_w_lock(iRwLockPosix *rwlock);
+
+void iposix_rwlock_w_unlock(iRwLockPosix *rwlock);
+
+void iposix_rwlock_r_lock(iRwLockPosix *rwlock);
+
+void iposix_rwlock_r_unlock(iRwLockPosix *rwlock);
 
 
 
