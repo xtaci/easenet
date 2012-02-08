@@ -2149,3 +2149,61 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 
 
 
+/**********************************************************************
+ * RC4
+ **********************************************************************/
+
+/* rc4 init */
+void icrypt_rc4_init(unsigned char *box, int *x, int *y, 
+	const unsigned char *key, int keylen)
+{
+	int X, Y, i, j, k, a;
+	if (keylen <= 0 || key == NULL) {
+		X = -1;
+		Y = -1;
+	}	else {
+		X = Y = 0;
+		j = k = 0;
+		for (i = 0; i < 256; i++) {
+			box[i] = (unsigned char)i;
+		}
+		for (i = 0; i < 256; i++) {
+			a = box[i];
+			j = (unsigned char)(j + a + key[k]);
+			box[i] = box[j];
+			box[j] = a;
+			if (++k >= keylen) k = 0;
+		}
+	}
+	x[0] = X;
+	y[0] = Y;
+}
+
+/* rc4_crypt */
+void icrypt_rc4_crypt(unsigned char *box, int *x, int *y, 
+	const unsigned char *src, unsigned char *dst, ilong size)
+{
+	int X = x[0];
+	int Y = y[0];
+	if (X < 0 || Y < 0) {			// 不加密的情况
+		if (src != dst) {
+			memmove(dst, src, size);
+		}
+	}
+	else {							// 加密的情况
+		int a, b; 
+		for (; size > 0; src++, dst++, size--) {
+			X = (unsigned char)(X + 1);
+			a = box[X];
+			Y = (unsigned char)(Y + a);
+			box[X] = box[Y];
+			b = box[Y];
+			box[Y] = a;
+			dst[0] = src[0] ^ box[(unsigned char)(a + b)];
+		}
+		x[0] = X;
+		y[0] = Y;
+	}
+}
+
+

@@ -1641,6 +1641,18 @@ ilong ibase64_encode(const void *src, ilong size, char *dst);
 ilong ibase64_decode(const char *src, ilong size, void *dst);
 
 
+/**********************************************************************
+ * RC4
+ **********************************************************************/
+
+/* rc4 init */
+void icrypt_rc4_init(unsigned char *box, int *x, int *y, 
+	const unsigned char *key, int keylen);
+
+/* rc4_crypt */
+void icrypt_rc4_crypt(unsigned char *box, int *x, int *y, 
+	const unsigned char *src, unsigned char *dst, ilong size);
+
 
 #ifdef __cplusplus
 }

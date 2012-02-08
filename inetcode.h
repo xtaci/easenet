@@ -65,6 +65,12 @@ struct ITMCLIENT
 	int error;
 	int header;
 	char *buffer;
+	int rc4_send_x;
+	int rc4_send_y;
+	int rc4_recv_x;
+	int rc4_recv_y;
+	unsigned char *rc4_send_box;
+	unsigned char *rc4_recv_box;
 	struct sockaddr local;
 	struct IMSTREAM sendmsg;
 	struct IMSTREAM recvmsg;
@@ -111,6 +117,11 @@ int itmc_vsend(struct ITMCLIENT *client, const void *vecptr[],
 
 int itmc_wait(struct ITMCLIENT *client, int millisec);
 
+void itmc_rc4_set_skey(struct ITMCLIENT *client, 
+	const unsigned char *key, int keylen);
+
+void itmc_rc4_set_rkey(struct ITMCLIENT *client, 
+	const unsigned char *key, int keylen);
 
 
 /*===================================================================*/
