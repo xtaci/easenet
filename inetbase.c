@@ -194,7 +194,7 @@ unsigned long iclock(void)
 /*===================================================================*/
 
 /* create thread */
-int ithread_create(ilong *id, ITHREADPROC fun, const void *attr, void *args)
+int ithread_create(ilong *id, ITHREADPROC fun, long stacksize, void *args)
 {
 	#ifdef __unix
 	pthread_t newthread;
@@ -204,7 +204,7 @@ int ithread_create(ilong *id, ITHREADPROC fun, const void *attr, void *args)
 	if (ret) return -1;
 	#elif defined(_WIN32)
 	ilong Handle;
-	Handle = (ilong)_beginthread((void(*)(void*))fun, 0, args);
+	Handle = (ilong)_beginthread((void(*)(void*))fun, stacksize, args);
 	if (id) *id = (ilong)Handle;
 	if (Handle == 0) return -1;
 	#endif

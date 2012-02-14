@@ -404,7 +404,7 @@ volatile extern IINT64 itimeclock;
 typedef void (*ITHREADPROC)(void *);
 
 /* create thread */
-int ithread_create(ilong *id, ITHREADPROC fun, const void *attr, void *args);
+int ithread_create(ilong *id, ITHREADPROC fun, long stacksize, void *args);
 
 /* exit thread */
 void ithread_exit(long retval);
