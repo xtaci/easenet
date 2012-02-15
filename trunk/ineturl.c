@@ -132,7 +132,7 @@ static void ihttpsock_try_send(IHTTPSOCK *httpsock)
 		retval = isend(httpsock->sock, flat, size, 0);
 		if (retval < 0) {
 			retval = ierrno();
-			if (retval == EAGAIN) retval = 0;
+			if (retval == IEAGAIN) retval = 0;
 			else {
 				retval = -1;
 				ihttpsock_close(httpsock);
