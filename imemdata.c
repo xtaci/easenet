@@ -2033,6 +2033,8 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 	char *d = dst;
 	int i;
 
+	if (size == 0) return 0;
+
 	/* returns nbytes needed */
 	if (src == NULL || dst == NULL) {
 		ilong nchars, result;
@@ -2071,6 +2073,8 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 	unsigned char *d = (unsigned char*)dst;
 	iulong mark, i, j, c, k;
 	char b[3];
+
+	if (size == 0) return 0;
 
 	if (src == NULL || dst == NULL) {
 		ilong nbytes;
@@ -2141,6 +2145,105 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 	}
 
 	return (ilong)k;
+}
+
+
+/* encode data as a base32 string, returns string size,
+   if dst == NULL, returns how many bytes needed for encode (>=real) */
+ilong ibase32_encode(const void *src, ilong size, char *dst)
+{
+	static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+	const unsigned char *buffer = (const unsigned char*)src;
+	unsigned char word;
+	ilong i, index;
+	char *ptr = dst;
+
+	if (size == 0) return 0;
+
+	if (src == NULL || dst == NULL) {
+		ilong nchars, result;
+		nchars = ((size + 4) / 5) * 8;
+		result = nchars + ((nchars - 1) / 76) + 1;
+		return result;
+	}
+
+	for (i = 0, index = 0; i < size; ) {
+		if (index > 3) {
+			word = (buffer[i] & (0xFF >> index));
+			index = (index + 5) % 8;
+			word <<= index;
+			if (i < size - 1) {
+				word |= buffer[i + 1] >> (8 - index);
+			}
+			i++;
+		}	else {
+			word = (buffer[i] >> (8 - (index + 5))) & 0x1F;
+			index = (index + 5) & 7;
+			if (index == 0) i++;
+		}
+
+		assert(word < 32);
+		*(dst++) = (char)encode[word];
+	}
+
+	*dst = 0;
+
+	return (ilong)(dst - ptr);
+}
+
+
+/* decode a base32 string into data, returns data size 
+   if dst == NULL, returns how many bytes needed for decode (>=real) */
+ilong ibase32_decode(const char *src, ilong size, void *dst)
+{
+	const unsigned char *lptr = (const unsigned char*)src;
+	unsigned char *buffer = (unsigned char*)dst;
+	static unsigned char decode[128] = { 0xff };
+	unsigned char word;
+	ilong offset, last, i;
+	int index;
+
+	if (size == 0) return 0;
+
+	if (src == NULL || dst == NULL) {
+		ilong need = ((size + 15) / 8) * 5;
+		return need;
+	}
+
+	if (decode[0] == 0xff) {
+		for (i = 1; i < 128; i++) {
+			if (i >= '2' && i <= '7') decode[i] = i - '2' + 26;
+			else if (i >= 'A' && i <= 'Z') decode[i] = i - 'A';
+			else if (i >= 'a' && i <= 'z') decode[i] = i - 'a';
+			else decode[i] = 0x88;
+		}
+		decode[0] = 0x88;
+	}
+
+	for(i = 0, index = 0, offset = 0, last = -1; i < size; i++) {
+		word = decode[lptr[i] & 0x7f];
+		if (word == 0xFF) continue;
+
+		if (index <= 3) {
+			index = (index + 5) & 7;
+			if (index == 0) {
+				if (last < offset) buffer[offset] = 0, last = offset;
+				buffer[offset] |= word;
+				offset++;
+			}	else {
+				if (last < offset) buffer[offset] = 0, last = offset;
+				buffer[offset] |= word << (8 - index);
+			}
+		}	else {
+			index = (index + 5) & 7;
+			if (last < offset) buffer[offset] = 0, last = offset;
+			buffer[offset] |= (word >> index);
+			offset++;
+			buffer[offset] = word << (8 - index);
+			last = offset;
+		}
+	}
+	return offset;
 }
 
 

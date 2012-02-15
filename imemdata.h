@@ -1622,7 +1622,7 @@ ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill);
 
 
 /**********************************************************************
- * BASE64
+ * BASE64 / BASE32
  **********************************************************************/
 
 /* encode data as a base64 string, returns string size,
@@ -1632,6 +1632,14 @@ ilong ibase64_encode(const void *src, ilong size, char *dst);
 /* decode a base64 string into data, returns data size 
    if dst == NULL, returns how many bytes needed for decode (>=real) */
 ilong ibase64_decode(const char *src, ilong size, void *dst);
+
+/* encode data as a base32 string, returns string size,
+   if dst == NULL, returns how many bytes needed for encode (>=real) */
+ilong ibase32_encode(const void *src, ilong size, char *dst);
+
+/* decode a base32 string into data, returns data size 
+   if dst == NULL, returns how many bytes needed for decode (>=real) */
+ilong ibase32_decode(const char *src, ilong size, void *dst);
 
 
 /**********************************************************************
