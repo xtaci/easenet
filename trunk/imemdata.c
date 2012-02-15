@@ -2284,12 +2284,12 @@ void icrypt_rc4_crypt(unsigned char *box, int *x, int *y,
 {
 	int X = x[0];
 	int Y = y[0];
-	if (X < 0 || Y < 0) {			// 不加密的情况
+	if (X < 0 || Y < 0) {			/* no crypt */
 		if (src != dst) {
 			memmove(dst, src, size);
 		}
 	}
-	else {							// 加密的情况
+	else {							/* crypt */
 		int a, b; 
 		for (; size > 0; src++, dst++, size--) {
 			X = (unsigned char)(X + 1);
