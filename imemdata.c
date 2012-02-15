@@ -2022,24 +2022,8 @@ ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill)
  * BASE64
  **********************************************************************/
 
-/* calculate how much memory needed for ibase64_encode (>=real) */
-ilong ibase64_need_encode_size(ilong length_of_data)
-{
-	ilong nchars, result;
-	nchars = ((length_of_data + 2) / 3) * 4;
-	result = nchars + ((nchars - 1) / 76) + 1;
-	return result;
-}
-
-/* calculate how much memory needed for ibase64_decode (>=real) */
-ilong ibase64_need_decode_size(ilong length_of_base64)
-{
-	ilong nbytes;
-	nbytes = ((length_of_base64 + 7) / 4) * 3;
-	return nbytes;
-}
-
-/* encode data as a base64 string, returns string size */
+/* encode data as a base64 string, returns string size,
+   if dst == NULL, returns how many bytes needed for encode (>=real) */
 ilong ibase64_encode(const void *src, ilong size, char *dst)
 {
 	const unsigned char *s = (const unsigned char*)src;
@@ -2047,13 +2031,17 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	iulong c;
 	char *d = dst;
-	int i, k;
+	int i;
 
-	for (i = 0, k = 0; i < size; k += 4) {
-		if (k >= 76) {
-			*d++ = '\n';
-			k = 0;
-		}
+	/* returns nbytes needed */
+	if (src == NULL || dst == NULL) {
+		ilong nchars, result;
+		nchars = ((size + 2) / 3) * 4;
+		result = nchars + ((nchars - 1) / 76) + 1;
+		return result;
+	}
+
+	for (i = 0; i < size; ) {
 		c = s[i];
 		c <<= 8;
 		i++;
@@ -2073,7 +2061,9 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 	return (ilong)(d - dst);
 }
 
-/* decode a base64 string into data, returns data size */
+
+/* decode a base64 string into data, returns data size 
+   if dst == NULL, returns how many bytes needed for decode (>=real) */
 ilong ibase64_decode(const char *src, ilong size, void *dst)
 {
 	static iulong decode[128] = { 0xff };
@@ -2081,6 +2071,12 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 	unsigned char *d = (unsigned char*)dst;
 	iulong mark, i, j, c, k;
 	char b[3];
+
+	if (src == NULL || dst == NULL) {
+		ilong nbytes;
+		nbytes = ((size + 7) / 4) * 3;
+		return nbytes;
+	}
 
 	if (decode[0] == 0xff) {
 		for (i = 1; i < 128; i++) {

@@ -363,7 +363,7 @@ static void itmc_try_send(struct ITMCLIENT *client)
 		retval = isend(client->sock, flat, size, 0);
 		if (retval < 0) {
 			retval = ierrno();
-			if (retval == EAGAIN) retval = 0;
+			if (retval == IEAGAIN) retval = 0;
 			else {
 				retval = -1;
 				itmc_close(client);
