@@ -1042,20 +1042,17 @@ static inline const char *idecode32i_msb(const char *p, IINT32 *w)
 /* encode float */
 static inline char *iencodef_lsb(char *p, float f)
 {
-	unsigned long *buf;
-	void *ptr = &f;
-	buf = (unsigned long*)ptr;
-	return iencode32u_lsb(p, *buf);
+	union { IUINT32 intpart; float floatpart; } vv;
+	vv.floatpart = f;
+	return iencode32u_lsb(p, vv.intpart);
 }
 
 /* decode float */
 static inline const char *idecodef_lsb(const char *p, float *f)
 {
-	unsigned long buf;
-	void *ptr;
-	p = idecode32u_lsb(p, (IUINT32*)&buf);
-	ptr = &buf;
-	*f = *(float*)ptr;
+	union { IUINT32 intpart; float floatpart; } vv;
+	p = idecode32u_lsb(p, &vv.intpart);
+	*f = vv.floatpart;
 	return p;
 }
 
