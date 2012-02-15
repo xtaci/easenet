@@ -208,7 +208,7 @@ void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 
 	for (shift = 1; (((size_t)1) << shift) < (size_t)nodesize; ) shift++;
 
-	newsize = (nodesize < IMROUNDSIZE)? IMROUNDSIZE : nodesize;
+	newsize = (nodesize < (ilong)IMROUNDSIZE)? (ilong)IMROUNDSIZE : nodesize;
 	newsize = IMROUNDUP(newsize);
 
 	mnode->node_size = newsize;
