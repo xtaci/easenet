@@ -933,9 +933,9 @@ void isockaddr_set_port(struct sockaddr *a, int port)
 }
 
 /* get port of sockaddr */
-int isockaddr_get_port(struct sockaddr *a)
+int isockaddr_get_port(const struct sockaddr *a)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in*)a;
+	const struct sockaddr_in *addr = (const struct sockaddr_in*)a;
 	return ntohs(addr->sin_port);
 }
 
@@ -947,9 +947,9 @@ void isockaddr_set_family(struct sockaddr *a, int family)
 }
 
 /* get family */
-int isockaddr_get_family(struct sockaddr *a)
+int isockaddr_get_family(const struct sockaddr *a)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in*)a;
+	const struct sockaddr_in *addr = (const struct sockaddr_in*)a;
 	return addr->sin_family;
 }
 

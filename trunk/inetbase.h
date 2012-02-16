@@ -576,13 +576,13 @@ unsigned long isockaddr_get_ip(const struct sockaddr *a);
 void isockaddr_set_port(struct sockaddr *a, int port);
 
 /* get port of sockaddr */
-int isockaddr_get_port(struct sockaddr *a);
+int isockaddr_get_port(const struct sockaddr *a);
 
 /* set family */
 void isockaddr_set_family(struct sockaddr *a, int family);
 
 /* get family */
-int isockaddr_get_family(struct sockaddr *a);
+int isockaddr_get_family(const struct sockaddr *a);
 
 /* set text to ip */
 int isockaddr_set_ip_text(struct sockaddr *a, const char *text);
