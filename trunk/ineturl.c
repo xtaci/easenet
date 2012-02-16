@@ -198,7 +198,7 @@ long ihttpsock_recv(IHTTPSOCK *httpsock, void *data, long size)
 
 	while (1) {
 		long canread = ims_dsize(&httpsock->recvmsg);
-		if (canread > remain) canread = remain;
+		if ((IINT64)canread > remain) canread = (long)remain;
 		if (canread > 0) {
 			ims_read(&httpsock->recvmsg, lptr, canread);
 			lptr += canread;
@@ -212,7 +212,7 @@ long ihttpsock_recv(IHTTPSOCK *httpsock, void *data, long size)
 
 	if (retval > 0) {
 		httpsock->received += retval;
-		return retval;
+		return (long)retval;
 	}
 	if (httpsock->state == IHTTPSOCK_STATE_CONNECTED) return 0;
 	if (httpsock->state == IHTTPSOCK_STATE_CONNECTING) return 0;
@@ -918,7 +918,7 @@ int ihttplib_getresponse(IHTTPLIB *http, ivalue_t *content, int waitms)
 	it_sresize(&http->buffer, 4096);
 	ptr = it_str(&http->buffer);
 	for (received = 0; ; ) {
-		before = http->sock->received;
+		before = (unsigned long)http->sock->received;
 		retval = ihttplib_recv(http, ptr, it_size(&http->buffer));
 		//printf("ihttplib_recv: %d\n", retval);
 		if (retval >= 0) {

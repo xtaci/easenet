@@ -241,7 +241,6 @@ int ithread_detach(ilong id)
 	#ifdef __unix
 	status = pthread_detach((pthread_t)id);
 	#elif defined(_WIN32)
-	CloseHandle((HANDLE)id);
 	status = 0;
 	#endif
 	return status;
