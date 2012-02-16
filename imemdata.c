@@ -2019,7 +2019,7 @@ ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill)
 
 
 /**********************************************************************
- * BASE64
+ * BASE64 / BASE32 / BASE16
  **********************************************************************/
 
 /* encode data as a base64 string, returns string size,
@@ -2068,7 +2068,7 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
    if dst == NULL, returns how many bytes needed for decode (>=real) */
 ilong ibase64_decode(const char *src, ilong size, void *dst)
 {
-	static iulong decode[128] = { 0xff };
+	static iulong decode[256] = { 0xff };
 	const unsigned char *s = (const unsigned char*)src;
 	unsigned char *d = (unsigned char*)dst;
 	iulong mark, i, j, c, k;
@@ -2083,13 +2083,13 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 	}
 
 	if (decode[0] == 0xff) {
-		for (i = 1; i < 128; i++) {
+		for (i = 1; i < 256; i++) {
 			if (i >= 'A' && i <= 'Z') decode[i] = i - 'A';
 			else if (i >= 'a' && i <= 'z') decode[i] = i - 'a' + 26;
 			else if (i >= '0' && i <= '9') decode[i] = i - '0' + 52;
 			else if (i == '+') decode[i] = 62;
 			else if (i == '/') decode[i] = 63;
-			else if (i == '=') decode[i] = 64;
+			else if (i == '=') decode[i] = 0;
 			else decode[i] = 88;
 		}
 		decode[0] = 88;
@@ -2097,7 +2097,7 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 
 	#define ibase64_skip(s, i, size) {					\
 			for (; i < size; i++) {						\
-				if (decode[s[i] & 0x7f] <= 64) break;	\
+				if (decode[s[i]] <= 64) break;			\
 			}											\
 			if (i >= size) { i = size + 1; break; } 	\
 		}
@@ -2107,23 +2107,23 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 		c = 0;
 
 		ibase64_skip(s, i, (iulong)size);
-		c += decode[s[i] & 0x7f];
+		c += decode[s[i]];
 		c <<= 6;
 		i++;
 		
 		ibase64_skip(s, i, (iulong)size);
-		c += decode[s[i] & 0x7f];
+		c += decode[s[i]];
 		c <<= 6;
 		i++;
 
 		ibase64_skip(s, i, (iulong)size);
 		if (s[i] != '=') {
-			c += decode[s[i] & 0x7f];
+			c += decode[s[i]];
 			c <<= 6;
 			i++;
 			ibase64_skip(s, i, (iulong)size);
 			if (s[i] != '=') {
-				c += decode[s[i] & 0x7f];
+				c += decode[s[i]];
 				i++;
 			}	else {
 				i = size;
@@ -2186,6 +2186,8 @@ ilong ibase32_encode(const void *src, ilong size, char *dst)
 		*(dst++) = (char)encode[word];
 	}
 
+	while ((((ilong)(dst - ptr)) & 7) != 0) *dst++ = '=';
+
 	*dst = 0;
 
 	return (ilong)(dst - ptr);
@@ -2198,7 +2200,6 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 {
 	const unsigned char *lptr = (const unsigned char*)src;
 	unsigned char *buffer = (unsigned char*)dst;
-	static unsigned char decode[128] = { 0xff };
 	unsigned char word;
 	ilong offset, last, i;
 	int index;
@@ -2210,19 +2211,13 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 		return need;
 	}
 
-	if (decode[0] == 0xff) {
-		for (i = 1; i < 128; i++) {
-			if (i >= '2' && i <= '7') decode[i] = i - '2' + 26;
-			else if (i >= 'A' && i <= 'Z') decode[i] = i - 'A';
-			else if (i >= 'a' && i <= 'z') decode[i] = i - 'a';
-			else decode[i] = 0x88;
-		}
-		decode[0] = 0x88;
-	}
-
 	for(i = 0, index = 0, offset = 0, last = -1; i < size; i++) {
-		word = decode[lptr[i] & 0x7f];
-		if (word == 0xFF) continue;
+		unsigned char ch = lptr[i];
+
+		if (ch >= '2' && ch <= '7') word = ch - '2' + 26;
+		else if (ch >= 'A' && ch <= 'Z') word = ch - 'A';
+		else if (ch >= 'a' && ch <= 'z') word = ch - 'a';
+		else continue;
 
 		if (index <= 3) {
 			index = (index + 5) & 7;
@@ -2243,7 +2238,60 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 			last = offset;
 		}
 	}
+
 	return offset;
+}
+
+
+/* encode data as a base16 string, returns string size,
+   the 'dst' output size is (2 * size), '\0' isn't appended */
+ilong ibase16_encode(const void *src, ilong size, char *dst)
+{
+	const char encode[] = "0123456789ABCDEF";
+	const unsigned char *ptr = (const unsigned char*)src;
+	char *output = dst;
+	if (src == NULL || dst == NULL) {
+		return 2 * size;
+	}
+	for (; size > 0; output += 2, ptr++, size--) {
+		output[0] = encode[ptr[0] >> 4];
+		output[1] = encode[ptr[0] & 15];
+	}
+	return (ilong)(output - dst);
+}
+
+
+/* decode a base16 string into data, returns data size 
+   if dst == NULL, returns how many bytes needed for decode (>=real) */
+ilong ibase16_decode(const char *src, ilong size, void *dst)
+{
+	const unsigned char *in = (const unsigned char*)src;
+	unsigned char *out = (unsigned char*)dst;
+	unsigned char word = 0;
+	unsigned char decode = 0;
+	int index = 0;
+
+	if (src == NULL || dst == NULL) {
+		return size >> 1;
+	}
+	
+	for (; size > 0; size--) {
+		unsigned char ch = *in++;
+		if (ch >= '0' && ch <= '9') word = ch - '0';
+		else if (ch >= 'A' && ch <= 'F') word = ch - 'A' + 10;
+		else if (ch >= 'a' && ch <= 'f') word = ch - 'a' + 10;
+		else continue;
+		if (index == 0) {
+			decode = word << 4;
+			index = 1;
+		}	else {
+			decode |= word & 0xf;
+			*out++ = decode;
+			index = 0;
+		}
+	}
+
+	return (ilong)(out - (unsigned char*)dst);
 }
 
 
