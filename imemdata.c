@@ -1580,6 +1580,238 @@ char *istrstrip(char *ptr, const char *delim)
 }
 
 
+/* string escape */
+ilong istrsave(const char *src, ilong size, char *out)
+{
+	const unsigned char *ptr = (const unsigned char*)src;
+	unsigned char *output = (unsigned char*)out;
+	ilong length, i;
+
+	if (size < 0) size = strlen(src);
+
+	if (out == NULL) {
+		length = 0;
+		for (i = 0; i < size; i++) {
+			unsigned char ch = ptr[i];
+			if (ch == '\r' || ch == '\n' || ch == '\t') length += 2;
+			else if (ch == '\'' || ch == '\"') length += 2;
+			else if (ch < 32) length += 4;
+			else length++;
+		}
+		return length + 3;
+	}
+	else {
+		const char hex[] = "0123456789ABCDEF";
+		for (i = 0; i < size; i++) {
+			unsigned char ch = *ptr++;
+			if (ch == '\r') {
+				*output++ = '\\';
+				*output++ = 'r';
+			}
+			else if (ch == '\n') {
+				*output++ = '\\';
+				*output++ = 'n';
+			}
+			else if (ch == '\t') {
+				*output++ = '\\';
+				*output++ = 't';
+			}
+			else if (ch == '"') {
+				*output++ = '"';
+				*output++ = '"';
+			}
+			else if (ch == '\\') {
+				*output++ = '\\';
+				*output++ = '\\';
+			}
+			else if (ch < 32) {
+				*output++ = '\\';
+				*output++ = 'x';
+				*output++ = (unsigned char)hex[ch >> 4];
+				*output++ = (unsigned char)hex[ch & 15];
+			}
+			else {
+				*output++ = ch;
+			}
+		}
+		length = (ilong)(output - (unsigned char*)out);
+		*output++ = 0;
+		return length;
+	}
+}
+
+
+/* string un-escape */
+ilong istrload(const char *src, ilong size, char *out)
+{
+	const unsigned char *ptr = (const unsigned char*)src;
+	unsigned char *output = (unsigned char*)out;
+	unsigned char ch;
+	ilong i;
+
+	if (size < 0) size = strlen(src);
+
+	if (out == NULL) {
+		return size + 1;
+	}
+
+	for (i = 0; i < size; ) {
+		ch = ptr[i];
+		if (ch == '\\') {
+			if (i < size - 1) {
+				ch = ptr[i + 1];
+				switch (ch) {
+				case 'r':
+					*output++ = '\r';
+					i += 2;
+					break;
+				case 'n':
+					*output++ = '\n';
+					i += 2;
+					break;
+				case 't':
+					*output++ = '\t';
+					i += 2;
+					break;
+				case '\'':
+					*output++ = '\'';
+					i += 2;
+					break;
+				case '\"':
+					*output++ = '\"';
+					i += 2;
+					break;
+				case '\\':
+					*output++ = '\\';
+					i += 2;
+					break;
+				case '0':
+					*output++ = '\0';
+					i += 2;
+					break;
+				case 'x':
+				case 'X':
+					if (i < size - 3) {
+						unsigned char a = ptr[i + 2];
+						unsigned char b = ptr[i + 3];
+						unsigned char c = 0;
+						unsigned char d = 0;
+						if (a >= '0' && a <= '9') c = a - '0';
+						else if (a >= 'a' && a <= 'f') c = a - 'a' + 10;
+						else if (a >= 'A' && a <= 'F') c = a - 'A' + 10;
+						if (b >= '0' && b <= '9') d = b - '0';
+						else if (b >= 'a' && b <= 'f') d = b - 'a' + 10;
+						else if (b >= 'A' && b <= 'F') d = b - 'A' + 10;
+						*output++ = (c << 4) | d;
+						i += 4;
+					}	else {
+						*output++ = '\\';
+						i++;
+					}
+					break;
+				default:
+					*output++ = '\\';
+					i++;
+					break;
+				}
+			}	else {
+				*output++ = '\\';
+				i++;
+			}
+		}
+		else if (ch == '"') {
+			if (i < size - 1) {
+				ch = ptr[i + 1];
+				if (ch == '"') {
+					*output++ = '\"';
+					i += 2;
+				}	else {
+					*output++ = '\"';
+					i += 1;
+				}
+			}	else {
+				*output++ = '"';
+				i++;
+			}
+		}
+		else {
+			*output++ = ch;
+			i++;
+		}
+	}
+
+	size = (ilong)(output - (unsigned char*)out);
+	*output++ = '\0';
+
+	return size;
+}
+
+
+/* csv tokenizer */
+const char *istrcsvtok(const char *text, ilong *next, ilong *size)
+{
+	ilong begin = 0, endup = 0, i;
+	int quotation = 0;
+
+	if (*next < 0) {
+		*size = 0;
+		return NULL;
+	}
+
+	begin = *next;
+
+	if (text[begin] == 0) {
+		*size = 0;
+		*next = -1;
+		if (begin == 0) return NULL;
+		if (text[begin - 1] == ',') return text + begin;
+		return NULL;
+	}
+
+	for (i = begin, endup = begin; ; ) {
+		if (quotation == 0) {
+			if (text[i] == ',') {
+				endup = i;
+				*next = i + 1;
+				break;
+			}
+			else if (text[i] == '\0') {
+				endup = i;
+				*next = i;
+				break;
+			}
+			else if (text[i] == '"') {
+				quotation = 1;
+				i++;
+			}	else {
+				i++;
+			}
+		}
+		else {
+			if (text[i] == '\0') {
+				endup = i;
+				*next = i;
+				break;
+			}
+			if (text[i] == '"') {
+				if (text[i + 1] == '"') {
+					i += 2;
+				}	else {
+					i++;
+					quotation = 0;
+				}
+			}	else {
+				i++;
+			}
+		}
+	}
+
+	*size = endup - begin;
+
+	return text + begin;
+}
+
+
 /**********************************************************************
  * ivalue_t string library
  **********************************************************************/
@@ -2014,6 +2246,264 @@ ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill)
 		it_strrjust(src, width, fill);
 	}
 	return src;
+}
+
+
+/* get string */
+ivalue_t *it_get_string(ivalue_t *str, void *fp, int (*getchp)(void*))
+{
+#ifndef IT_GET_STR_BUFFER
+#define IT_GET_STR_BUFFER 1024
+#endif
+	unsigned char buffer[IT_GET_STR_BUFFER];
+	ilong size = 0;
+	it_sresize(str, 0);
+	for (size = 0; ; ) {
+		int ch = getchp(fp);
+		if (ch < 0) break;
+		buffer[size++] = (unsigned char)ch;
+		if (size >= IT_GET_STR_BUFFER) {
+			it_strcatc(str, (char*)buffer, size);
+			size = 0;
+		}
+	}
+	if (size > 0) {
+		it_strcatc(str, (char*)buffer, size);
+	}
+	return str;
+}
+
+
+/**********************************************************************
+ * string list library
+ **********************************************************************/
+/* create string list */
+istring_list_t* istring_list_new(void)
+{
+	istring_list_t *strings;
+
+	strings = (istring_list_t*)ikmem_malloc(sizeof(istring_list_t));
+	if (strings == NULL) return NULL;
+
+	strings->vector = iv_create();
+
+	if (strings->vector == NULL) {
+		ikmem_free(strings);
+		return NULL;
+	}
+
+	strings->values = NULL;
+	strings->count = 0;
+
+	it_init(&strings->none, ITYPE_NONE);
+
+	return strings;
+}
+
+/* delete string list */
+void istring_list_delete(istring_list_t *strings)
+{
+	if (strings) {
+		if (strings->values) {
+			ilong i;
+			for (i = strings->count - 1; i >= 0; i--) {
+				it_destroy(strings->values[i]);
+			}
+			strings->values = NULL;
+		}
+		if (strings->vector) {
+			ikmem_free(strings->vector);
+			strings->vector = NULL;
+		}
+		strings->count = 0;
+		ikmem_free(strings);
+	}
+}
+
+/* insert at position */
+int istring_list_insert(istring_list_t *strings, ilong pos, 
+	const ivalue_t *value)
+{
+	ivalue_t **values = strings->values;
+	ilong newsize, i;
+	if (pos < 0) pos = strings->count + pos + 1;
+	if (pos < 0) pos = 0;
+	newsize = pos + 1;
+
+	/* resize memory */
+	if (newsize > strings->count) {
+		if (iv_resize(strings->vector, newsize * sizeof(void*)) != 0)
+			return -1;
+		strings->values = (ivalue_t**)strings->vector->data;
+		values = strings->values;
+		for (i = strings->count; i < newsize; i++) {
+			values[i] = NULL;
+		}
+		for (i = strings->count; i < newsize - 1; i++) {
+			values[i] = (ivalue_t*)ikmem_malloc(sizeof(ivalue_t));
+			if (values[i] == NULL) return -2;
+			it_init(values[i], ITYPE_NONE);
+		}
+		strings->count = newsize;
+	}
+
+	/* move data */
+	for (i = strings->count - 1; i > pos; i--) {
+		values[i] = values[i - 1];
+	}
+
+	values[pos] = (ivalue_t*)ikmem_malloc(sizeof(ivalue_t));
+	if (values[pos] == NULL) return -3;
+
+	it_init(values[pos], ITYPE_NONE);
+
+	it_cpy(values[pos], value);
+
+	return 0;
+}
+
+/* remove at position */
+void istring_list_remove(istring_list_t *strings, ilong pos)
+{
+	ivalue_t **values = strings->values;
+	ilong i;
+	if (pos < 0) pos = strings->count + pos + 1;
+	if (pos < 0 || pos >= strings->count) return;
+	if (values[pos]) {
+		it_destroy(values[pos]);
+		ikmem_free(values[pos]);
+		values[pos] = NULL;
+	}
+	for (i = pos; i < strings->count - 1; i++) {
+		values[i] = values[i + 1];
+	}
+	strings->count--;
+}
+
+/* clear list */
+void istring_list_clear(istring_list_t *strings)
+{
+	ivalue_t **values = strings->values;
+	ilong i;
+	for (i = 0; i < strings->count; i++) {
+		if (values[i] != NULL) {
+			it_destroy(values[i]);
+			ikmem_free(values[i]);
+			values[i] = NULL;
+		}
+	}
+	strings->count = 0;
+}
+
+/* insert at position with c string */
+int istring_list_insertc(istring_list_t *strings, ilong pos, 
+	const char *value, ilong size)
+{
+	ivalue_t tt;
+	if (size < 0) size = strlen(value);
+	it_strref(&tt, value, (long)size);
+	return istring_list_insert(strings, pos, &tt);
+}
+
+/* push back */
+int istring_list_push_back(istring_list_t *strings, const ivalue_t *value)
+{
+	return istring_list_insert(strings, -1, value);
+}
+
+/* push back c string */
+int istring_list_push_backc(istring_list_t *strings, const char *value, 
+	ilong size)
+{
+	ivalue_t tt;
+	if (size < 0) size = strlen(value);
+	it_strref(&tt, value, (long)size);
+	return istring_list_insert(strings, -1, &tt);
+}
+
+/* encode into csv row */
+int istring_list_csv_encode(const istring_list_t *strings, ivalue_t *csvrow)
+{
+	ilong total, size, i, j;
+	char *ptr;
+
+	for (i = total = 0; i < strings->count; i++) {
+		const ivalue_t *src = strings->values[i];
+		total += istrsave(it_str(src), src->size, NULL);
+		total += 3;
+	}
+
+	it_sresize(csvrow, total);
+	ptr = it_str(csvrow);
+
+	for (i = total = 0; i < strings->count; i++) {
+		const ivalue_t *src = strings->values[i];
+		const char *ss = (const char*)it_str(src);
+		int escape = 0;
+		size = it_size(src);
+		for (j = 0; j < size; j++) {
+			if (ss[j] == '"' || ss[j] == ',' || ss[j] == '\0') {
+				escape = 1;
+				break;
+			}
+		}
+		if (escape) {
+			*ptr++ = '"';
+		}
+		size = istrsave(ss, size, ptr);
+		ptr += size;
+		if (escape) {
+			*ptr++ = '"';
+		}
+		if (i < strings->count - 1) {
+			*ptr++ = ',';
+		}
+	}
+
+	ptr[0] = 0;
+
+	it_sresize(csvrow, ptr - it_str(csvrow));
+
+	return 0;
+}
+
+/* decode from csv row */
+istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size)
+{
+	istring_list_t *strings = NULL;
+	ivalue_t source, newstr;
+	ilong ilen, inext;
+
+	if (size < 0) size = strlen(csvrow);
+
+	for (; size > 0; size--) {
+		if (csvrow[size - 1] != '\n') break;
+	}
+
+	strings = istring_list_new();
+	if (strings == NULL) return NULL;
+
+	it_init(&source, ITYPE_STR);
+	it_init(&newstr, ITYPE_STR);
+
+	it_strcpyc(&source, csvrow, size);
+
+	for (inext = 0, ilen = 0; ; ) {
+		const char *ptr = istrcsvtok(it_str(&source), &inext, &ilen);
+		if (ptr == NULL) break;
+		if (ptr[0] == '"' && ilen > 1) {
+			if (ptr[ilen - 1] == '"') { ptr++, ilen -= 2; }
+		}
+		it_sresize(&newstr, ilen);
+		ilen = istrload(ptr, ilen, it_str(&newstr));
+		it_sresize(&newstr, ilen);
+		istring_list_push_back(strings, &newstr);
+	}
+
+	it_destroy(&newstr);
+	it_destroy(&source);
+
+	return strings;
 }
 
 
