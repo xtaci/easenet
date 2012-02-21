@@ -2177,7 +2177,7 @@ ivalue_t *it_strcase(ivalue_t *src, int change)
 /* append integer */
 ivalue_t *it_strappendl(ivalue_t *src, ilong val, int radix)
 {
-	char digit[20];
+	char digit[32];
 	assert(it_type(src) == ITYPE_STR);
 	iltoa(val, digit, radix);
 	it_strcatc2(src, digit);
@@ -2187,7 +2187,7 @@ ivalue_t *it_strappendl(ivalue_t *src, ilong val, int radix)
 /* append unsigned int */
 ivalue_t *it_strappendul(ivalue_t *src, iulong val, int radix)
 {
-	char digit[20];
+	char digit[32];
 	assert(it_type(src) == ITYPE_STR);
 	iultoa(val, digit, radix);
 	it_strcatc2(src, digit);
