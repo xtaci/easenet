@@ -27,11 +27,6 @@
  **********************************************************************/
 
 
-/**********************************************************************
- * DICTIONARY OPERATION
- **********************************************************************/
-
-
 /*-------------------------------------------------------------------*/
 /* dictionary basic interface                                        */
 /*-------------------------------------------------------------------*/
@@ -1927,7 +1922,9 @@ int it_stricmpc(const ivalue_t *src, const char *str, ilong start)
 int it_strsep(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 	const ivalue_t *sep)
 {
-	iulong current, size, endup, i;
+	iulong current, size, endup, i, s1, s2;
+	const char *p1 = it_str(src);
+	const char *p2 = it_str(sep);
 
 	if (src == NULL || dst == NULL) return -1;
 	if (it_type(src) != ITYPE_STR || it_type(dst) != ITYPE_STR) return -2;
@@ -1948,11 +1945,14 @@ int it_strsep(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 		return 0;
 	}
 
-	for (endup = current; endup < it_size(src); endup++) {
-		for (i = 0; i < it_size(sep); i++) {
-			if (it_str(sep)[i] == it_str(src)[endup]) break;
+	s1 = it_size(src);
+	s2 = it_size(sep);
+
+	for (endup = current; endup < s1; endup++) {
+		for (i = 0; i < s2; i++) {
+			if (p1[endup] == p2[i]) break;
 		}
-		if (i < it_size(sep)) break;
+		if (i < s2) break;
 	}
 
 	size = endup - current;

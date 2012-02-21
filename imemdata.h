@@ -1692,6 +1692,25 @@ int istring_list_csv_encode(const istring_list_t *strings, ivalue_t *csvrow);
 /* decode from csv row */
 istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size);
 
+/* split into strings */
+static inline istring_list_t *istring_list_split(const char *text, ilong len,
+	const char *seps, ilong seplen)
+{
+	ivalue_t src, sep, value;
+	istring_list_t *strings;
+	iulong next = 0;
+	it_strref(&src, text, len);
+	it_strref(&sep, seps, seplen);
+	strings = istring_list_new();
+	if (strings == NULL) return NULL;
+	it_init(&value, ITYPE_STR);
+	while (1) {
+		if (it_strsep(&src, &next, &value, &sep) != 0) break;
+		istring_list_push_back(strings, &value);
+	}
+	it_destroy(&value);
+	return strings;
+}
 
 
 /**********************************************************************
