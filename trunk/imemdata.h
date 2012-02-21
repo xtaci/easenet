@@ -1527,6 +1527,15 @@ int iulltoa(IUINT64 val, char *buf, int radix);
 /* istrstrip implementation */
 char *istrstrip(char *ptr, const char *delim);
 
+/* string escape */
+ilong istrsave(const char *src, ilong size, char *out);
+
+/* string un-escape */
+ilong istrload(const char *src, ilong size, char *out);
+
+/* csv tokenizer */
+const char *istrcsvtok(const char *text, ilong *next, ilong *size);
+
 
 /**********************************************************************
  * ivalue_t string library
@@ -1618,6 +1627,70 @@ ivalue_t *it_strrjust(ivalue_t *src, iulong width, char fill);
 /* middle just */
 ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill);
 
+/* get string */
+ivalue_t *it_get_string(ivalue_t *str, void *fp, int (*getchp)(void*));
+
+
+
+/**********************************************************************
+ * string list library
+ **********************************************************************/
+struct ISTRINGLIST
+{
+	ivector_t *vector;
+	ivalue_t **values;
+	ivalue_t none;
+	ilong count;
+};
+
+typedef struct ISTRINGLIST istring_list_t;
+
+/* create new string list */
+istring_list_t* istring_list_new(void);
+
+/* delete string list */
+void istring_list_delete(istring_list_t *strings);
+
+/* remove at position */
+void istring_list_remove(istring_list_t *strings, ilong pos);
+
+/* clear string list */
+void istring_list_clear(istring_list_t *strings);
+
+/* insert at position */
+int istring_list_insert(istring_list_t *strings, ilong pos, 
+	const ivalue_t *value);
+
+/* insert at position with c string */
+int istring_list_insertc(istring_list_t *strings, ilong pos, 
+	const char *value, ilong size);
+
+/* push back */
+int istring_list_push_back(istring_list_t *strings, const ivalue_t *value);
+
+/* push back c string */
+int istring_list_push_backc(istring_list_t *strings, const char *value, 
+	ilong size);
+
+/* get string */
+static inline ivalue_t* istring_list_get(istring_list_t *strings, ilong i) {
+	if (i < 0 || i >= strings->count) return NULL;
+	return strings->values[i];
+}
+
+/* get const string */
+static inline const ivalue_t* istring_list_get_const(
+	const istring_list_t *strings, ilong i) {
+	if (i < 0 || i >= strings->count) return NULL;
+	return strings->values[i];
+}
+
+
+/* encode into csv row */
+int istring_list_csv_encode(const istring_list_t *strings, ivalue_t *csvrow);
+
+/* decode from csv row */
+istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size);
 
 
 
