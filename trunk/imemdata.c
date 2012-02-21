@@ -2249,31 +2249,6 @@ ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill)
 }
 
 
-/* get string */
-ivalue_t *it_get_string(ivalue_t *str, void *fp, int (*getchp)(void*))
-{
-#ifndef IT_GET_STR_BUFFER
-#define IT_GET_STR_BUFFER 1024
-#endif
-	unsigned char buffer[IT_GET_STR_BUFFER];
-	ilong size = 0;
-	it_sresize(str, 0);
-	for (size = 0; ; ) {
-		int ch = getchp(fp);
-		if (ch < 0) break;
-		buffer[size++] = (unsigned char)ch;
-		if (size >= IT_GET_STR_BUFFER) {
-			it_strcatc(str, (char*)buffer, size);
-			size = 0;
-		}
-	}
-	if (size > 0) {
-		it_strcatc(str, (char*)buffer, size);
-	}
-	return str;
-}
-
-
 /**********************************************************************
  * string list library
  **********************************************************************/
@@ -2503,6 +2478,27 @@ istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size)
 	it_destroy(&newstr);
 	it_destroy(&source);
 
+	return strings;
+}
+
+
+/* split string */
+istring_list_t *istring_list_split(const char *text, ilong len,
+	const char *seps, ilong seplen)
+{
+	ivalue_t src, sep, value;
+	istring_list_t *strings;
+	iulong next = 0;
+	it_strref(&src, text, len);
+	it_strref(&sep, seps, seplen);
+	strings = istring_list_new();
+	if (strings == NULL) return NULL;
+	it_init(&value, ITYPE_STR);
+	while (1) {
+		if (it_strsep(&src, &next, &value, &sep) != 0) break;
+		istring_list_push_back(strings, &value);
+	}
+	it_destroy(&value);
 	return strings;
 }
 
