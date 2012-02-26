@@ -9,6 +9,8 @@
 #ifndef __INETBASE_H__
 #define __INETBASE_H__
 
+#include <stddef.h>
+#include <stdlib.h>
 
 /*-------------------------------------------------------------------*/
 /* C99 Compatible                                                    */
@@ -356,18 +358,8 @@ typedef unsigned long long IUINT64;
 /*====================================================================*/
 #ifndef __IULONG_DEFINED
 #define __IULONG_DEFINED
-#if defined(WIN64) || defined(_WIN64)		/* LLP64 mode */
-#ifdef _MSC_VER
-typedef unsigned __int64 iulong;
-typedef __int64 ilong;
-#else										/* LP64 or 32/16 mode */
-typedef unsigned long long iulong;
-typedef long long ilong;
-#endif
-#else
-typedef unsigned long iulong;
-typedef long ilong;
-#endif
+typedef ptrdiff_t ilong;
+typedef size_t iulong;
 #endif
 
 
