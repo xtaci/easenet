@@ -874,9 +874,8 @@ ilong iring_ptr(struct IRING *ring, char **p1, ilong *s1, char **p2,
 
 
 /**********************************************************************
- * IMSTREAM: The struct definition of the memory stream descriptor
+ * IMSTREAM: Memory Stream Descriptor
  **********************************************************************/
-
 struct IMSPAGE
 {
 	struct IQUEUEHEAD head;
@@ -886,7 +885,6 @@ struct IMSPAGE
 };
 
 #define IMSPAGE_LRU_SIZE	2
-
 
 /* init memory stream */
 void ims_init(struct IMSTREAM *s, imemnode_t *fnode, ilong low, ilong high)
@@ -956,7 +954,6 @@ static void ims_page_del(struct IMSTREAM *s, struct IMSPAGE *page)
 void ims_destroy(struct IMSTREAM *s)
 {
 	struct IMSPAGE *current;
-
 	assert(s);
 
 	for (; iqueue_is_empty(&s->head) == 0; ) {
@@ -1156,7 +1153,6 @@ ilong ims_flat(const struct IMSTREAM *s, void **pointer)
 char* istrcasestr(char* s1, char* s2)  
 {  
 	char* ptr = s1;  
-
 	if (!s1 || !s2 || !*s2) return s1;  
 	   
 	while (*ptr) {  
@@ -1167,8 +1163,7 @@ char* istrcasestr(char* s1, char* s2)
 				cur1++;  
 				cur2++;  
 			}  
-			if (!*cur2)  
-				return ptr;  
+			if (!*cur2) return ptr;  
 		}  
 		ptr++;  
 	}  
@@ -1526,7 +1521,6 @@ int iulltoa(IUINT64 val, char *buf, int radix)
 	return ixtoa(val, buf, (unsigned)radix, 0);
 }
 
-
 /* istrstrip implementation */
 char *istrstrip(char *ptr, const char *delim)
 {
@@ -1562,7 +1556,6 @@ char *istrstrip(char *ptr, const char *delim)
 
 	return ptr;
 }
-
 
 /* string escape */
 ilong istrsave(const char *src, ilong size, char *out)
@@ -1962,7 +1955,6 @@ int it_strsepc(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 	return it_strsep(src, pos, dst, &vsep);
 }
 
-
 /* it_strstrip implementation */
 ivalue_t *it_strstrip(ivalue_t *str, const ivalue_t *delim)
 {
@@ -2237,7 +2229,7 @@ ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill)
 
 
 /**********************************************************************
- * string list library
+ * string list
  **********************************************************************/
 /* create string list */
 istring_list_t* istring_list_new(void)
@@ -2357,7 +2349,7 @@ void istring_list_clear(istring_list_t *strings)
 	strings->count = 0;
 }
 
-/* insert at position with c string */
+/* insert at position */
 int istring_list_insertc(istring_list_t *strings, ilong pos, 
 	const char *value, ilong size)
 {
@@ -2373,7 +2365,7 @@ int istring_list_push_back(istring_list_t *strings, const ivalue_t *value)
 	return istring_list_insert(strings, -1, value);
 }
 
-/* push back c string */
+/* push back */
 int istring_list_push_backc(istring_list_t *strings, const char *value, 
 	ilong size)
 {
@@ -2468,7 +2460,6 @@ istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size)
 	return strings;
 }
 
-
 /* split string */
 istring_list_t *istring_list_split(const char *text, ilong len,
 	const char *seps, ilong seplen)
@@ -2518,7 +2509,6 @@ int istring_list_join(const istring_list_t *strings, const char *str,
 }
 
 
-
 /**********************************************************************
  * BASE64 / BASE32 / BASE16
  **********************************************************************/
@@ -2563,7 +2553,6 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 
 	return (ilong)(d - dst);
 }
-
 
 /* decode a base64 string into data, returns data size 
    if dst == NULL, returns how many bytes needed for decode (>=real) */
@@ -2648,7 +2637,6 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 	return (ilong)k;
 }
 
-
 /* encode data as a base32 string, returns string size,
    if dst == NULL, returns how many bytes needed for encode (>=real) */
 ilong ibase32_encode(const void *src, ilong size, char *dst)
@@ -2693,7 +2681,6 @@ ilong ibase32_encode(const void *src, ilong size, char *dst)
 
 	return (ilong)(dst - ptr);
 }
-
 
 /* decode a base32 string into data, returns data size 
    if dst == NULL, returns how many bytes needed for decode (>=real) */
@@ -2743,7 +2730,6 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 	return offset;
 }
 
-
 /* encode data as a base16 string, returns string size,
    the 'dst' output size is (2 * size), '\0' isn't appended */
 ilong ibase16_encode(const void *src, ilong size, char *dst)
@@ -2760,7 +2746,6 @@ ilong ibase16_encode(const void *src, ilong size, char *dst)
 	}
 	return (ilong)(output - dst);
 }
-
 
 /* decode a base16 string into data, returns data size 
    if dst == NULL, returns how many bytes needed for decode (>=real) */
@@ -2794,7 +2779,6 @@ ilong ibase16_decode(const char *src, ilong size, void *dst)
 
 	return (ilong)(out - (unsigned char*)dst);
 }
-
 
 
 /**********************************************************************
