@@ -15,21 +15,14 @@
  * for more information, please see the readme file
  *
  **********************************************************************/
-
 #include "imemdata.h"
 
 #include <ctype.h>
 #include <assert.h>
 
-
 /**********************************************************************
- * VALUE OPERATION
+ * Dictionary Basic Interface
  **********************************************************************/
-
-
-/*-------------------------------------------------------------------*/
-/* dictionary basic interface                                        */
-/*-------------------------------------------------------------------*/
 
 /* create dictionary */
 idict_t *idict_create(void)
@@ -423,9 +416,9 @@ void idict_clear(idict_t *dict)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* directly typing interface                                         */
-/*-------------------------------------------------------------------*/
+/*
+ * directly typing interface 
+ */
 
 /* search: key(str) val(str) */
 int idict_search_ss(idict_t *dict, const char *key, ilong keysize,
@@ -746,7 +739,7 @@ ilong iring_drop(struct IRING *cache, ilong size)
 }
 
 /* get flat ptr and size */
-ilong iring_flat(const struct IRING *cache, ilong offset, void **pointer)
+ilong iring_flat(const struct IRING *cache, void **pointer)
 {
 	ilong dsize, half;
 
@@ -845,11 +838,10 @@ ilong iring_get(const struct IRING *cache, ilong pos, void *data, ilong len)
 int iring_swap(struct IRING *cache, void *buffer, ilong size)
 {
 	ilong dsize;
-	ilong retval;
 
 	dsize = IRING_DSIZE(cache);
 	if (dsize + 1 > size) return -1;
-	retval = iring_read(cache, buffer, dsize);
+	iring_read(cache, buffer, dsize);
 	cache->data = (char*)buffer;
 	cache->size = size;
 	cache->head = dsize;
@@ -923,10 +915,8 @@ static struct IMSPAGE *ims_page_new(struct IMSTREAM *s)
 {
 	struct IMSPAGE *page;
 	ilong newsize, index;
-	ilong oldsize;
 
 	newsize = sizeof(struct IMSPAGE) + s->size;
-	oldsize = newsize;
 	newsize = newsize >= s->hiwater ? s->hiwater : newsize;
 	newsize = newsize <= s->lowater ? s->lowater : newsize;
 
@@ -941,7 +931,7 @@ static struct IMSPAGE *ims_page_new(struct IMSTREAM *s)
 		page = (struct IMSPAGE*)ikmem_malloc(newsize);
 		if (page == NULL) return NULL;
 		newsize = ikmem_ptr_size(page);
-		page->index = 0xfffffffful;
+		page->index = (iulong)0xfffffffful;
 		page->size = newsize - sizeof(struct IMSPAGE);
 	}
 
@@ -954,10 +944,10 @@ static struct IMSPAGE *ims_page_new(struct IMSTREAM *s)
 static void ims_page_del(struct IMSTREAM *s, struct IMSPAGE *page)
 {
 	if (s->fixed_pages != NULL) {
-		assert(page->index != 0xfffffffful);
+		assert(page->index != (iulong)0xfffffffful);
 		imnode_del(s->fixed_pages, page->index);
 	}	else {
-		assert(page->index == 0xfffffffful);
+		assert(page->index == (iulong)0xfffffffful);
 		ikmem_free(page);
 	}
 }
@@ -1201,7 +1191,6 @@ int istrncasecmp(char* s1, char* s2, size_t num)
 	}
 	return 0;
 }
-
 
 /* strsep implementation */
 char *istrsep(char **stringp, const char *delim)
@@ -1635,7 +1624,6 @@ ilong istrsave(const char *src, ilong size, char *out)
 	}
 }
 
-
 /* string un-escape */
 ilong istrload(const char *src, ilong size, char *out)
 {
@@ -1740,7 +1728,6 @@ ilong istrload(const char *src, ilong size, char *out)
 
 	return size;
 }
-
 
 /* csv tokenizer */
 const char *istrcsvtok(const char *text, ilong *next, ilong *size)
@@ -2500,6 +2487,34 @@ istring_list_t *istring_list_split(const char *text, ilong len,
 	}
 	it_destroy(&value);
 	return strings;
+}
+
+/* join string list */
+int istring_list_join(const istring_list_t *strings, const char *str, 
+	ilong size, ivalue_t *output) 
+{
+	ilong needed, count, i;
+	char *ptr;
+	if (size < 0) size = (ilong)strlen(str);
+	count = (ilong)strings->count;
+	for (i = count - 1, needed = 0; i >= 0; i--) {
+		needed += it_size(strings->values[i]);
+		if (i > 0) needed += size;
+	}
+	it_sresize(output, needed);
+	ptr = it_str(output);
+	for (i = 0; i < count; i++) {
+		const ivalue_t *string = strings->values[i];
+		ilong length = it_size(string);
+		memcpy(ptr, it_str(string), length);
+		ptr += length;
+		if (i < count - 1) {
+			memcpy(ptr, str, size);
+			ptr += size;
+		}
+	}
+	ptr[0] = 0;
+	return 0;
 }
 
 

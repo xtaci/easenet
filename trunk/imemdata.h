@@ -116,7 +116,7 @@ typedef unsigned long long IUINT64;
 #endif
 
 #ifndef INLINE
-#ifdef __GNUC__
+#if defined(__GNUC__)
 
 #if (__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 1))
 #define INLINE         __inline__ __attribute__((always_inline))
@@ -1375,7 +1375,7 @@ ilong iring_drop(struct IRING *cache, ilong size);
 void iring_clear(struct IRING *cached);
 
 /* get flat ptr and size */
-ilong iring_flat(const struct IRING *cache, ilong offset, void **pointer);
+ilong iring_flat(const struct IRING *cache, void **pointer);
 
 /* put data to given position */
 ilong iring_put(struct IRING *cache, ilong pos, const void *data, ilong len);
@@ -1692,6 +1692,10 @@ istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size);
 /* split into strings */
 istring_list_t *istring_list_split(const char *text, ilong len,
 	const char *seps, ilong seplen);
+
+/* join string list */
+int istring_list_join(const istring_list_t *strings, const char *str, 
+	ilong size, ivalue_t *output);
 
 
 /**********************************************************************
