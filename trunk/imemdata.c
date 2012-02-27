@@ -2201,8 +2201,8 @@ ivalue_t *it_replace(const ivalue_t *src, ivalue_t *out,
 		}
 	}
 
-	if (position < it_size(src)) 
-		it_strcatc(out, ptr_src + position, it_size(src) - position);
+	if (position < (ilong)it_size(src)) 
+		it_strcatc(out, ptr_src + position, (ilong)it_size(src) - position);
 
 	if (src == &saved) 
 		it_destroy(&saved);
