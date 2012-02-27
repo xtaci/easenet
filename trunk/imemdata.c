@@ -24,7 +24,7 @@
  * Dictionary Basic Interface
  **********************************************************************/
 
-/* create dictionary */
+/* create */
 idict_t *idict_create(void)
 {
 	idict_t *dict;
@@ -59,7 +59,7 @@ idict_t *idict_create(void)
 	return dict;
 }
 
-/* delete dictionary */
+/* delete */
 void idict_delete(idict_t *dict)
 {
 	struct IDICTENTRY *entry;
@@ -79,7 +79,7 @@ void idict_delete(idict_t *dict)
 	ikmem_free(dict);
 }
 
-/* search pair in dictionary */
+/* search pair */
 static inline idictentry_t *_idict_search(idict_t *dict, const ivalue_t *key)
 {
 	idictentry_t *recent, *entry;
@@ -94,9 +94,8 @@ static inline idictentry_t *_idict_search(idict_t *dict, const ivalue_t *key)
 
 	if (recent) {
 		if (recent->key.hash == hash1) {
-			if (it_cmp(&recent->key, key) == 0) {
+			if (it_cmp(&recent->key, key) == 0) 
 				return recent;
-			}
 		}
 	}
 
@@ -131,21 +130,19 @@ static inline void _idict_refval(ivalue_t *dst, const ivalue_t *src)
 	}
 }
 
-/* search pair in dictionary */
+/* search pair */
 ivalue_t *idict_search(idict_t *dict, const ivalue_t *key, ilong *pos)
 {
 	idictentry_t *entry;
 	ivalue_t kk;
 
 	_idict_refval(&kk, key);
-
 	entry = _idict_search(dict, &kk);
 
 	if (entry == NULL) 
 		return NULL;
 
-	if (pos) 
-		pos[0] = entry->pos;
+	if (pos) pos[0] = entry->pos;
 
 	return &entry->val;
 }
@@ -257,31 +254,27 @@ static inline ilong _idict_update(idict_t *dict, const ivalue_t *key,
 
 	/* add to bucket queue */
 	iqueue_add_tail(&entry->queue, &bucket->head);
-
 	dict->lru[hash2] = entry;
 
 	bucket->count++;
 	dict->size++;
 
 	/* check necessary of table-growwing */
-	if (dict->size >= (dict->length << 1)) {
+	if (dict->size >= (dict->length << 1)) 
 		_idict_resize(dict, dict->shift + 1);
-	}
 
 	return pos;
 }
 
-/* add (key, val) pair into dictionary */
+/* add (key, val) pair to dict */
 ilong idict_add(idict_t *dict, const ivalue_t *key, const ivalue_t *val)
 {
 	ivalue_t kk;
-
 	_idict_refval(&kk, key);
-
 	return _idict_update(dict, &kk, val, 0);
 }
 
-/* delete pair from dictionary */
+/* delete pair from dict */
 static inline int _idict_del(idict_t *dict, idictentry_t *entry)
 {
 	iulong hash1, hash2, pos;
@@ -308,7 +301,7 @@ static inline int _idict_del(idict_t *dict, idictentry_t *entry)
 	return 0;
 }
 
-/* delete pair from dictionary */
+/* delete pair from dict */
 int idict_del(idict_t *dict, const ivalue_t *key)
 {
 	idictentry_t *entry;
@@ -323,7 +316,7 @@ int idict_del(idict_t *dict, const ivalue_t *key)
 	return _idict_del(dict, entry);
 }
 
-/* update (key, val) from dictionary */
+/* update (key, val) from dict */
 ilong idict_update(idict_t *dict, const ivalue_t *key, const ivalue_t *val)
 {
 	ivalue_t kk;
@@ -333,7 +326,7 @@ ilong idict_update(idict_t *dict, const ivalue_t *key, const ivalue_t *val)
 	return _idict_update(dict, &kk, val, 1);
 }
 
-/* pick entry from position */
+/* pick entry from pos */
 static inline idictentry_t *_idict_pick(const idict_t *dict, ilong pos)
 {
 	idictentry_t *entry;
@@ -347,7 +340,7 @@ static inline idictentry_t *_idict_pick(const idict_t *dict, ilong pos)
 	return entry;
 }
 
-/* get key from position */
+/* get key from pos */
 ivalue_t *idict_pos_get_key(idict_t *dict, ilong pos)
 {
 	idictentry_t *entry;
@@ -356,7 +349,7 @@ ivalue_t *idict_pos_get_key(idict_t *dict, ilong pos)
 	return &entry->key;
 }
 
-/* get value from position */
+/* get value from pos */
 ivalue_t *idict_pos_get_val(idict_t *dict, ilong pos)
 {
 	idictentry_t *entry;
@@ -365,7 +358,7 @@ ivalue_t *idict_pos_get_val(idict_t *dict, ilong pos)
 	return &entry->val;
 }
 
-/* get sid from position */
+/* get sid from pos */
 ilong idict_pos_get_sid(idict_t *dict, ilong pos)
 {
 	idictentry_t *entry;
@@ -374,7 +367,7 @@ ilong idict_pos_get_sid(idict_t *dict, ilong pos)
 	return entry->sid;
 }
 
-/* update from position */
+/* update from pos */
 void idict_pos_update(idict_t *dict, ilong pos, const ivalue_t *val)
 {
 	idictentry_t *entry;
@@ -383,7 +376,7 @@ void idict_pos_update(idict_t *dict, ilong pos, const ivalue_t *val)
 	it_cpy(&entry->val, val);
 }
 
-/* delete from position */
+/* delete */
 void idict_pos_delete(idict_t *dict, ilong pos)
 {
 	idictentry_t *entry;
@@ -392,19 +385,19 @@ void idict_pos_delete(idict_t *dict, ilong pos)
 	_idict_del(dict, entry);
 }
 
-/* get first position */
+/* get first pos */
 ilong idict_pos_head(idict_t *dict)
 {
 	return imnode_head(&dict->nodes);
 }
 
-/* get next position */
+/* get next pos */
 ilong idict_pos_next(idict_t *dict, ilong pos)
 {
 	return imnode_next(&dict->nodes, pos);
 }
 
-/* clear dictionary */
+/* clear dict */
 void idict_clear(idict_t *dict)
 {
 	assert(dict);
@@ -633,7 +626,7 @@ int idict_del_i(idict_t *dict, ilong key)
 
 
 /**********************************************************************
- * IRING: The struct definition of the cache descriptor
+ * IRING: Ring FIFO
  **********************************************************************/
 
 /* init circle cache */
@@ -659,7 +652,7 @@ ilong iring_fsize(const struct IRING *cache)
 	return IRING_FSIZE(cache);
 }
 
-/* write data */
+/* write */
 ilong iring_write(struct IRING *cache, const void *data, ilong size)
 {
 	char *lptr = (char*)data;
@@ -687,7 +680,7 @@ ilong iring_write(struct IRING *cache, const void *data, ilong size)
 	return size;
 }
 
-/* peek data */
+/* peek */
 ilong iring_peek(const struct IRING *cache, void *data, ilong size)
 {
 	char *lptr = (char*)data;
@@ -709,7 +702,7 @@ ilong iring_peek(const struct IRING *cache, void *data, ilong size)
 	return size;
 }
 
-/* read data */
+/* read */
 ilong iring_read(struct IRING *cache, void *data, ilong size)
 {
 	ilong nsize;
@@ -723,10 +716,10 @@ ilong iring_read(struct IRING *cache, void *data, ilong size)
 	return nsize;
 }
 
-/* drop data */
+/* drop */
 ilong iring_drop(struct IRING *cache, ilong size)
 {
-	ilong dsize ;
+	ilong dsize;
 
 	dsize = IRING_DSIZE(cache);
 	if (dsize <= 0) return 0;
@@ -752,7 +745,7 @@ ilong iring_flat(const struct IRING *cache, void **pointer)
 	return (half <= dsize)? half : dsize;
 }
 
-/* put data to given position */
+/* put data to given pos */
 ilong iring_put(struct IRING *cache, ilong pos, const void *data, ilong len)
 {
 	char *lptr = (char*)data;
@@ -798,7 +791,7 @@ ilong iring_put(struct IRING *cache, ilong pos, const void *data, ilong len)
 	return size;
 }
 
-/* get data from given position */
+/* get data from given pos */
 ilong iring_get(const struct IRING *cache, ilong pos, void *data, ilong len)
 {
 	char *lptr = (char*)data;
@@ -849,13 +842,11 @@ int iring_swap(struct IRING *cache, void *buffer, ilong size)
 	return 0;
 }
 
-
 /* ring buffer ptr info */
 ilong iring_ptr(struct IRING *ring, char **p1, ilong *s1, char **p2, 
 	ilong *s2)
 {
 	ilong dsize = IRING_DSIZE(ring);
-
 	if (ring->tail + dsize <= ring->size) {
 		p1[0] = ring->data + ring->tail;
 		s1[0] = dsize;
@@ -867,21 +858,20 @@ ilong iring_ptr(struct IRING *ring, char **p1, ilong *s1, char **p2,
 		p2[0] = ring->data;
 		s2[0] = ring->head;
 	}
-
 	return dsize;
 }
 
 
 
 /**********************************************************************
- * IMSTREAM: Memory Stream Descriptor
+ * IMSTREAM: Memory FIFO
  **********************************************************************/
 struct IMSPAGE
 {
 	struct IQUEUEHEAD head;
 	iulong size;
 	iulong index;
-	unsigned char data[2];
+	IUINT8 data[2];
 };
 
 #define IMSPAGE_LRU_SIZE	2
@@ -1021,12 +1011,12 @@ ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size)
 {
 	ilong total, canwrite, towrite;
 	struct IMSPAGE *current;
-	unsigned char *lptr;
+	IUINT8 *lptr;
 
 	assert(s);
 
 	if (size <= 0) return size;
-	lptr = (unsigned char*)ptr;
+	lptr = (IUINT8*)ptr;
 
 	for (total = 0; size > 0; size -= towrite, total += towrite) {
 		if (iqueue_is_empty(&s->head)) {
@@ -1059,12 +1049,12 @@ ilong ims_read_sub(struct IMSTREAM *s, void *ptr, ilong size, int nodrop)
 	ilong total, canread, toread, posread;
 	struct IQUEUEHEAD *head;
 	struct IMSPAGE *current;
-	unsigned char *lptr;
+	IUINT8 *lptr;
 
 	assert(s);
 
 	if (size <= 0) return size;
-	lptr = (unsigned char*)ptr;
+	lptr = (IUINT8*)ptr;
 	posread = s->pos_read;
 	head = s->head.next;
 
@@ -1146,10 +1136,10 @@ ilong ims_flat(const struct IMSTREAM *s, void **pointer)
 
 
 /**********************************************************************
- * common string operation (not be defined in some compiler)
+ * common string operation
  **********************************************************************/
 
-/* strcasestr implementation */
+/* strcasestr */
 char* istrcasestr(char* s1, char* s2)  
 {  
 	char* ptr = s1;  
@@ -1170,7 +1160,7 @@ char* istrcasestr(char* s1, char* s2)
 	return   NULL;  
 }
 
-/* strncasecmp implementation */
+/* strncasecmp */
 int istrncasecmp(char* s1, char* s2, size_t num)
 {
 	char c1, c2;
@@ -1187,7 +1177,7 @@ int istrncasecmp(char* s1, char* s2, size_t num)
 	return 0;
 }
 
-/* strsep implementation */
+/* strsep */
 char *istrsep(char **stringp, const char *delim)
 {
 	register char *s;
@@ -1217,7 +1207,7 @@ char *istrsep(char **stringp, const char *delim)
 #define IFL_OVERFLOW	4
 #define IFL_UNSIGNED	8
 
-/* istrtoxl implementation */
+/* istrtoxl */
 static unsigned long istrtoxl(const char *nptr, const char **endptr,
 	int ibase, int flags)
 {
@@ -1235,7 +1225,7 @@ static unsigned long istrtoxl(const char *nptr, const char **endptr,
 	number = 0;
 
 	c = *p++;
-	while (isspace((int)(unsigned char)c)) c = *p++;
+	while (isspace((int)(IUINT8)c)) c = *p++;
 
 	if (c == '+') c = *p++;
 	if (c == '-') {
@@ -1273,8 +1263,8 @@ static unsigned long istrtoxl(const char *nptr, const char **endptr,
 	maxval = (~0ul) / ibase;
 
 	for (; ; ) {
-		if (isdigit((int)(unsigned char)c)) digval = c - '0';
-		else if (isalpha((int)(unsigned char)c)) 
+		if (isdigit((int)(IUINT8)c)) digval = c - '0';
+		else if (isalpha((int)(IUINT8)c)) 
 			digval = ITOUPPER(c) - 'A' + 10;
 		else break;
 
@@ -1323,7 +1313,7 @@ static unsigned long istrtoxl(const char *nptr, const char **endptr,
 	return number;
 }
 
-/* istrtoxl implementation */
+/* istrtoxl */
 static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 	int ibase, int flags)
 {
@@ -1341,7 +1331,7 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 	number = 0;
 
 	c = *p++;
-	while (isspace((int)(unsigned char)c)) c = *p++;
+	while (isspace((int)(IUINT8)c)) c = *p++;
 
 	if (c == '+') c = *p++;
 	if (c == '-') {
@@ -1364,28 +1354,20 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 	}
 
 	if (ibase == 16) {
-		if (c == '0' && (*p == 'x' || *p == 'X')) {
-			p++;
-			c = *p++;
-		}
+		if (c == '0' && (*p == 'x' || *p == 'X')) p++, c = *p++;
 	}
 	else if (ibase == 2) {
-		if (c == '0' && (*p == 'b' || *p == 'B')) {
-			p++;
-			c = *p++;
-		}
+		if (c == '0' && (*p == 'b' || *p == 'B')) p++, c = *p++;
 	}
 
 	maxval = (~((IUINT64)0)) / ibase;
 
 	for (; ; ) {
-		if (isdigit((int)(unsigned char)c)) digval = c - '0';
-		else if (isalpha((int)(unsigned char)c)) 
-			digval = ITOUPPER(c) - 'A' + 10;
+		if (isdigit((int)(IUINT8)c)) digval = c - '0';
+		else if (isalpha((int)(IUINT8)c)) digval = ITOUPPER(c) - 'A' + 10;
 		else break;
 
 		if (digval >= (IUINT64)ibase) break;
-
 		flags |= IFL_READDIGIT;
 	
 		if (number < maxval || (number == maxval && 
@@ -1393,9 +1375,7 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 			number = number * ibase + digval;
 		}	else {
 			flags |= IFL_OVERFLOW;
-			if (endptr == NULL) {
-				break;
-			}
+			if (endptr == NULL) break;
 		}
 
 		c = *p++;
@@ -1429,7 +1409,7 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 	return number;
 }
 
-/* implementation ixtoa */
+/* ixtoa */
 static int ixtoa(IUINT64 val, char *buf, unsigned radix, int is_neg)
 {
 	IUINT64 digval;
@@ -1470,58 +1450,58 @@ static int ixtoa(IUINT64 val, char *buf, unsigned radix, int is_neg)
 	return 0;
 }
 
-/* istrtol implementation */
+/* istrtol */
 long istrtol(const char *nptr, const char **endptr, int ibase)
 {
 	return (long)istrtoxl(nptr, endptr, ibase, 0);
 }
 
-/* istrtoul implementation */
+/* istrtoul */
 unsigned long istrtoul(const char *nptr, const char **endptr, int ibase)
 {
 	return istrtoxl(nptr, endptr, ibase, IFL_UNSIGNED);
 }
 
-/* istrtoll implementation */
+/* istrtoll */
 IINT64 istrtoll(const char *nptr, const char **endptr, int ibase)
 {
 	return (IINT64)istrtoxll(nptr, endptr, ibase, 0);
 }
 
-/* istrtoull implementation */
+/* istrtoull */
 IUINT64 istrtoull(const char *nptr, const char **endptr, int ibase)
 {
 	return istrtoxll(nptr, endptr, ibase, IFL_UNSIGNED);
 }
 
-/* iltoa implementation */
+/* iltoa */
 int iltoa(long val, char *buf, int radix)
 {
 	IINT64 mval = val;
 	return ixtoa((IUINT64)mval, buf, (unsigned)radix, (val < 0)? 1 : 0);
 }
 
-/* iultoa implementation */
+/* iultoa */
 int iultoa(unsigned long val, char *buf, int radix)
 {
 	IUINT64 mval = (IUINT64)val;
 	return ixtoa(mval, buf, (unsigned)radix, 0);
 }
 
-/* iltoa implementation */
+/* iltoa */
 int illtoa(IINT64 val, char *buf, int radix)
 {
 	IUINT64 mval = (IUINT64)val;
 	return ixtoa(mval, buf, (unsigned)radix, (val < 0)? 1 : 0);
 }
 
-/* iultoa implementation */
+/* iultoa */
 int iulltoa(IUINT64 val, char *buf, int radix)
 {
 	return ixtoa(val, buf, (unsigned)radix, 0);
 }
 
-/* istrstrip implementation */
+/* istrstrip */
 char *istrstrip(char *ptr, const char *delim)
 {
 	size_t size, i;
@@ -1557,11 +1537,11 @@ char *istrstrip(char *ptr, const char *delim)
 	return ptr;
 }
 
-/* string escape */
+/* str escape */
 ilong istrsave(const char *src, ilong size, char *out)
 {
-	const unsigned char *ptr = (const unsigned char*)src;
-	unsigned char *output = (unsigned char*)out;
+	const IUINT8 *ptr = (const IUINT8*)src;
+	IUINT8 *output = (IUINT8*)out;
 	ilong length, i;
 
 	if (size < 0) size = strlen(src);
@@ -1569,7 +1549,7 @@ ilong istrsave(const char *src, ilong size, char *out)
 	if (out == NULL) {
 		length = 0;
 		for (i = 0; i < size; i++) {
-			unsigned char ch = ptr[i];
+			IUINT8 ch = ptr[i];
 			if (ch == '\r' || ch == '\n' || ch == '\t') length += 2;
 			else if (ch == '\'' || ch == '\"') length += 2;
 			else if (ch < 32) length += 4;
@@ -1578,58 +1558,42 @@ ilong istrsave(const char *src, ilong size, char *out)
 		return length + 3;
 	}
 	else {
-		const char hex[] = "0123456789ABCDEF";
+		static const char hex[] = "0123456789ABCDEF";
 		for (i = 0; i < size; i++) {
-			unsigned char ch = *ptr++;
-			if (ch == '\r') {
-				*output++ = '\\';
-				*output++ = 'r';
-			}
-			else if (ch == '\n') {
-				*output++ = '\\';
-				*output++ = 'n';
-			}
-			else if (ch == '\t') {
-				*output++ = '\\';
-				*output++ = 't';
-			}
-			else if (ch == '"') {
-				*output++ = '"';
-				*output++ = '"';
-			}
-			else if (ch == '\\') {
-				*output++ = '\\';
-				*output++ = '\\';
-			}
+			IUINT8 ch = *ptr++;
+			if (ch == '\r') *output++ = '\\', *output++ = 'r';
+			else if (ch == '\n') *output++ = '\\', *output++ = 'n';
+			else if (ch == '\t') *output++ = '\\', *output++ = 't';
+			else if (ch == '"') *output++ = '"', *output++ = '"';
+			else if (ch == '\\') *output++ = '\\', *output++ = '\\';
 			else if (ch < 32) {
 				*output++ = '\\';
 				*output++ = 'x';
-				*output++ = (unsigned char)hex[ch >> 4];
-				*output++ = (unsigned char)hex[ch & 15];
+				*output++ = (IUINT8)hex[ch >> 4];
+				*output++ = (IUINT8)hex[ch & 15];
 			}
 			else {
 				*output++ = ch;
 			}
 		}
-		length = (ilong)(output - (unsigned char*)out);
+		length = (ilong)(output - (IUINT8*)out);
 		*output++ = 0;
 		return length;
 	}
 }
 
-/* string un-escape */
+/* str un-escape */
 ilong istrload(const char *src, ilong size, char *out)
 {
-	const unsigned char *ptr = (const unsigned char*)src;
-	unsigned char *output = (unsigned char*)out;
-	unsigned char ch;
+	const IUINT8 *ptr = (const IUINT8*)src;
+	IUINT8 *output = (IUINT8*)out;
+	IUINT8 ch;
 	ilong i;
 
 	if (size < 0) size = strlen(src);
 
-	if (out == NULL) {
+	if (out == NULL) 
 		return size + 1;
-	}
 
 	for (i = 0; i < size; ) {
 		ch = ptr[i];
@@ -1637,41 +1601,17 @@ ilong istrload(const char *src, ilong size, char *out)
 			if (i < size - 1) {
 				ch = ptr[i + 1];
 				switch (ch) {
-				case 'r':
-					*output++ = '\r';
-					i += 2;
-					break;
-				case 'n':
-					*output++ = '\n';
-					i += 2;
-					break;
-				case 't':
-					*output++ = '\t';
-					i += 2;
-					break;
-				case '\'':
-					*output++ = '\'';
-					i += 2;
-					break;
-				case '\"':
-					*output++ = '\"';
-					i += 2;
-					break;
-				case '\\':
-					*output++ = '\\';
-					i += 2;
-					break;
-				case '0':
-					*output++ = '\0';
-					i += 2;
-					break;
-				case 'x':
+				case 'r': *output++ = '\r'; i += 2; break;
+				case 'n': *output++ = '\n'; i += 2; break;
+				case 't': *output++ = '\t'; i += 2; break;
+				case '\'': *output++ = '\''; i += 2; break;
+				case '\"': *output++ = '\"'; i += 2; break;
+				case '\\': *output++ = '\\'; i += 2; break;
+				case '0': *output++ = '\0'; i += 2; break;
+				case 'x': 
 				case 'X':
 					if (i < size - 3) {
-						unsigned char a = ptr[i + 2];
-						unsigned char b = ptr[i + 3];
-						unsigned char c = 0;
-						unsigned char d = 0;
+						IUINT8 a = ptr[i + 2], b = ptr[i + 3], c = 0, d = 0;
 						if (a >= '0' && a <= '9') c = a - '0';
 						else if (a >= 'a' && a <= 'f') c = a - 'a' + 10;
 						else if (a >= 'A' && a <= 'F') c = a - 'A' + 10;
@@ -1698,13 +1638,8 @@ ilong istrload(const char *src, ilong size, char *out)
 		else if (ch == '"') {
 			if (i < size - 1) {
 				ch = ptr[i + 1];
-				if (ch == '"') {
-					*output++ = '\"';
-					i += 2;
-				}	else {
-					*output++ = '\"';
-					i += 1;
-				}
+				if (ch == '"') *output++ = '\"', i += 2;
+				else *output++ = '\"', i += 1;
 			}	else {
 				*output++ = '"';
 				i++;
@@ -1715,10 +1650,8 @@ ilong istrload(const char *src, ilong size, char *out)
 			i++;
 		}
 	}
-
-	size = (ilong)(output - (unsigned char*)out);
+	size = (ilong)(output - (IUINT8*)out);
 	*output++ = '\0';
-
 	return size;
 }
 
@@ -1745,36 +1678,16 @@ const char *istrcsvtok(const char *text, ilong *next, ilong *size)
 
 	for (i = begin, endup = begin; ; ) {
 		if (quotation == 0) {
-			if (text[i] == ',') {
-				endup = i;
-				*next = i + 1;
-				break;
-			}
-			else if (text[i] == '\0') {
-				endup = i;
-				*next = i;
-				break;
-			}
-			else if (text[i] == '"') {
-				quotation = 1;
-				i++;
-			}	else {
-				i++;
-			}
+			if (text[i] == ',') { endup = i; *next = i + 1; break; }
+			else if (text[i] == '\0') { endup = i; *next = i; break; }
+			else if (text[i] == '"') quotation = 1, i++;
+			else i++;
 		}
 		else {
-			if (text[i] == '\0') {
-				endup = i;
-				*next = i;
-				break;
-			}
-			if (text[i] == '"') {
-				if (text[i + 1] == '"') {
-					i += 2;
-				}	else {
-					i++;
-					quotation = 0;
-				}
+			if (text[i] == '\0') { endup = i; *next = i; break; }
+			if (text[i] == '"') { 
+				if (text[i + 1] == '"') i += 2;
+				else i++, quotation = 0;
 			}	else {
 				i++;
 			}
@@ -1782,7 +1695,6 @@ const char *istrcsvtok(const char *text, ilong *next, ilong *size)
 	}
 
 	*size = endup - begin;
-
 	return text + begin;
 }
 
@@ -1791,15 +1703,13 @@ const char *istrcsvtok(const char *text, ilong *next, ilong *size)
  * ivalue_t string library
  **********************************************************************/
 
-/* get sub string */
+/* get sub str */
 ivalue_t *it_strsub(const ivalue_t *src, ivalue_t *dst, ilong start, 
 	ilong endup)
 {
 	ilong size;
 
-	if (dst == NULL) {
-		return dst;
-	}
+	if (dst == NULL) return dst;
 	if (src == NULL) {
 		it_sresize(dst, 0);
 		return dst;
@@ -1825,7 +1735,7 @@ ivalue_t *it_strsub(const ivalue_t *src, ivalue_t *dst, ilong start,
 	return dst;
 }
 
-/* string compare */
+/* str compare */
 static int it_strcmpx(const ivalue_t *src, const ivalue_t *str, ilong start, 
 	int incase)
 {
@@ -1870,19 +1780,19 @@ static int it_strcmpx(const ivalue_t *src, const ivalue_t *str, ilong start,
 	return -1;
 }
 
-/* string compare */
+/* str compare */
 int it_strcmp(const ivalue_t *src, const ivalue_t *str, ilong start)
 {
 	return it_strcmpx(src, str, start, 0);
 }
 
-/* string compare case insensitive */
+/* str compare case insensitive */
 int it_stricmp(const ivalue_t *src, const ivalue_t *str, ilong start)
 {
 	return it_strcmpx(src, str, start, 1);
 }
 
-/* string compare with c string */
+/* str compare with c str */
 int it_strcmpc(const ivalue_t *src, const char *str, ilong start)
 {
 	ivalue_t tt;
@@ -1890,7 +1800,7 @@ int it_strcmpc(const ivalue_t *src, const char *str, ilong start)
 	return it_strcmpx(src, &tt, start, 0);
 }
 
-/* string compare with c string (case insensitive) */
+/* str compare with c string (case insensitive) */
 int it_stricmpc(const ivalue_t *src, const char *str, ilong start)
 {
 	ivalue_t tt;
@@ -1898,7 +1808,7 @@ int it_stricmpc(const ivalue_t *src, const char *str, ilong start)
 	return it_strcmpx(src, &tt, start, 1);
 }
 
-/* it_strsep implementation */
+/* it_strsep */
 int it_strsep(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 	const ivalue_t *sep)
 {
@@ -1944,7 +1854,7 @@ int it_strsep(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 	return 0;
 }
 
-/* it_strsepc implementation */
+/* it_strsepc */
 int it_strsepc(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 	const char *sep)
 {
@@ -1955,7 +1865,7 @@ int it_strsepc(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 	return it_strsep(src, pos, dst, &vsep);
 }
 
-/* it_strstrip implementation */
+/* it_strstrip */
 ivalue_t *it_strstrip(ivalue_t *str, const ivalue_t *delim)
 {
 	iulong size, dlen, i, j, k;
@@ -1982,9 +1892,8 @@ ivalue_t *it_strstrip(ivalue_t *str, const ivalue_t *delim)
 	it_size(str) = size;
 
 	for (i = 0, k = 0; i < size; i++) {
-		for (j = 0; j < dlen; j++) {
+		for (j = 0; j < dlen; j++) 
 			if (span[j] == ptr[i]) break;
-		}
 		if (j >= dlen) break;
 		k++;
 	}
@@ -2133,7 +2042,6 @@ ilong it_strfindri(const ivalue_t *src, const ivalue_t *str,
 	return it_strfindx(src, str, s, e, 1, 1);
 }
 
-
 /* case change: change=0: upper, change=1: lowwer */
 ivalue_t *it_strcase(ivalue_t *src, int change)
 {
@@ -2189,7 +2097,6 @@ ivalue_t *it_strsetul(ivalue_t *src, iulong val, int radix)
 	return it_strappendul(src, val, radix);
 }
 
-
 /* left just */
 ivalue_t *it_strljust(ivalue_t *src, iulong width, char fill)
 {
@@ -2227,6 +2134,82 @@ ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill)
 	return src;
 }
 
+/* replace: if count >= 0 only the first count occurrences are replaced */
+ivalue_t *it_replace(const ivalue_t *src, ivalue_t *out,
+	const ivalue_t *str_old, const ivalue_t *str_new, ilong count)
+{
+	const char *ptr_old = it_str(str_old);
+	const char *ptr_new = it_str(str_new);
+	const char *ptr_src;
+	ilong size_old = it_size(str_old);
+	ilong size_new = it_size(str_new);
+	ilong position = 0, i = 0;
+	ivalue_t saved;
+
+	if (it_type(src) != ITYPE_STR || it_type(out) != ITYPE_STR ||
+		it_type(str_old) != ITYPE_STR || it_type(str_new) != ITYPE_STR) {
+		return NULL;
+	}
+
+	if (count == 0) {
+		if (src != out) it_cpy(out, src);
+		return out;
+	}
+
+	if (size_old == 1 && size_new == 1) {
+		char chold = ptr_old[0];
+		char chnew = ptr_new[0];
+		char *ptr_out;
+		if (src != out) it_cpy(out, src);
+		ptr_out = it_str(out);
+		if (count < 0) {
+			for (i = it_size(out); i > 0; ptr_out++, i--) {
+				if (ptr_out[0] == chold) ptr_out[0] = chnew;
+			}
+		}	else {
+			for (i = it_size(out); i > 0; ptr_out++, i--) {
+				if (ptr_out[0] == chold) {
+					ptr_out[0] = chnew;
+					if (--count <= 0) break;
+				}
+			}
+		}
+		return out;
+	}
+
+	if (src == out) {
+		it_init(&saved, ITYPE_STR);
+		it_cpy(&saved, src);
+		src = &saved;
+	}
+
+	ptr_src = it_str(src);
+	it_sresize(out, 0);
+
+	while (1) {
+		ilong retval = it_strfind2(src, str_old, position);
+		if (retval < 0) break;
+		if (retval > position) {
+			it_strcatc(out, ptr_src + position, retval - position);
+		}
+		if (size_new > 0) {
+			it_strcatc(out, ptr_new, size_new);
+		}
+		position = retval + size_old;
+		if (count > 0) {
+			if (--count <= 0) break;
+		}
+	}
+
+	if (position < it_size(src)) 
+		it_strcatc(out, ptr_src + position, it_size(src) - position);
+
+	if (src == &saved) 
+		it_destroy(&saved);
+
+	return out;
+}
+
 
 /**********************************************************************
  * string list
@@ -2260,9 +2243,8 @@ void istring_list_delete(istring_list_t *strings)
 	if (strings) {
 		if (strings->values) {
 			ilong i;
-			for (i = strings->count - 1; i >= 0; i--) {
+			for (i = strings->count - 1; i >= 0; i--) 
 				it_destroy(strings->values[i]);
-			}
 			strings->values = NULL;
 		}
 		if (strings->vector) {
@@ -2274,7 +2256,7 @@ void istring_list_delete(istring_list_t *strings)
 	}
 }
 
-/* insert at position */
+/* insert at pos */
 int istring_list_insert(istring_list_t *strings, ilong pos, 
 	const ivalue_t *value)
 {
@@ -2290,9 +2272,8 @@ int istring_list_insert(istring_list_t *strings, ilong pos,
 			return -1;
 		strings->values = (ivalue_t**)strings->vector->data;
 		values = strings->values;
-		for (i = strings->count; i < newsize; i++) {
+		for (i = strings->count; i < newsize; i++) 
 			values[i] = NULL;
-		}
 		for (i = strings->count; i < newsize - 1; i++) {
 			values[i] = (ivalue_t*)ikmem_malloc(sizeof(ivalue_t));
 			if (values[i] == NULL) return -2;
@@ -2302,21 +2283,19 @@ int istring_list_insert(istring_list_t *strings, ilong pos,
 	}
 
 	/* move data */
-	for (i = strings->count - 1; i > pos; i--) {
+	for (i = strings->count - 1; i > pos; i--) 
 		values[i] = values[i - 1];
-	}
 
 	values[pos] = (ivalue_t*)ikmem_malloc(sizeof(ivalue_t));
 	if (values[pos] == NULL) return -3;
 
 	it_init(values[pos], ITYPE_NONE);
-
 	it_cpy(values[pos], value);
 
 	return 0;
 }
 
-/* remove at position */
+/* remove at pos */
 void istring_list_remove(istring_list_t *strings, ilong pos)
 {
 	ivalue_t **values = strings->values;
@@ -2328,9 +2307,8 @@ void istring_list_remove(istring_list_t *strings, ilong pos)
 		ikmem_free(values[pos]);
 		values[pos] = NULL;
 	}
-	for (i = pos; i < strings->count - 1; i++) {
+	for (i = pos; i < strings->count - 1; i++) 
 		values[i] = values[i + 1];
-	}
 	strings->count--;
 }
 
@@ -2349,7 +2327,7 @@ void istring_list_clear(istring_list_t *strings)
 	strings->count = 0;
 }
 
-/* insert at position */
+/* insert at pos */
 int istring_list_insertc(istring_list_t *strings, ilong pos, 
 	const char *value, ilong size)
 {
@@ -2371,7 +2349,7 @@ int istring_list_push_backc(istring_list_t *strings, const char *value,
 {
 	ivalue_t tt;
 	if (size < 0) size = strlen(value);
-	it_strref(&tt, value, (long)size);
+	it_strref(&tt, value, size);
 	return istring_list_insert(strings, -1, &tt);
 }
 
@@ -2401,21 +2379,14 @@ int istring_list_csv_encode(const istring_list_t *strings, ivalue_t *csvrow)
 				break;
 			}
 		}
-		if (escape) {
-			*ptr++ = '"';
-		}
+		if (escape) *ptr++ = '"';
 		size = istrsave(ss, size, ptr);
 		ptr += size;
-		if (escape) {
-			*ptr++ = '"';
-		}
-		if (i < strings->count - 1) {
-			*ptr++ = ',';
-		}
+		if (escape) *ptr++ = '"';
+		if (i < strings->count - 1) *ptr++ = ',';
 	}
 
 	ptr[0] = 0;
-
 	it_sresize(csvrow, ptr - it_str(csvrow));
 
 	return 0;
@@ -2446,7 +2417,7 @@ istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size)
 		const char *ptr = istrcsvtok(it_str(&source), &inext, &ilen);
 		if (ptr == NULL) break;
 		if (ptr[0] == '"' && ilen > 1) {
-			if (ptr[ilen - 1] == '"') { ptr++, ilen -= 2; }
+			if (ptr[ilen - 1] == '"') ptr++, ilen -= 2;
 		}
 		it_sresize(&newstr, ilen);
 		ilen = istrload(ptr, ilen, it_str(&newstr));
@@ -2460,7 +2431,7 @@ istring_list_t *istring_list_csv_decode(const char *csvrow, ilong size)
 	return strings;
 }
 
-/* split string */
+/* split str */
 istring_list_t *istring_list_split(const char *text, ilong len,
 	const char *seps, ilong seplen)
 {
@@ -2480,7 +2451,7 @@ istring_list_t *istring_list_split(const char *text, ilong len,
 	return strings;
 }
 
-/* join string list */
+/* join str list */
 int istring_list_join(const istring_list_t *strings, const char *str, 
 	ilong size, ivalue_t *output) 
 {
@@ -2514,10 +2485,10 @@ int istring_list_join(const istring_list_t *strings, const char *str,
  **********************************************************************/
 
 /* encode data as a base64 string, returns string size,
-   if dst == NULL, returns how many bytes needed for encode (>=real) */
+   if dst == 0, returns how many bytes needed for encode (>=real) */
 ilong ibase64_encode(const void *src, ilong size, char *dst)
 {
-	const unsigned char *s = (const unsigned char*)src;
+	const IUINT8 *s = (const IUINT8*)src;
 	static const char encode[] = 
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	iulong c;
@@ -2535,7 +2506,7 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 	}
 
 	for (i = 0; i < size; ) {
-		c = s[i];
+		c = s[i]; 
 		c <<= 8;
 		i++;
 		c += (i < size)? s[i] : 0;
@@ -2550,22 +2521,19 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 	}
 
 	d[0] = '\0';
-
 	return (ilong)(d - dst);
 }
 
-/* decode a base64 string into data, returns data size 
-   if dst == NULL, returns how many bytes needed for decode (>=real) */
+/* decode a base64 string into data, returns data size */
 ilong ibase64_decode(const char *src, ilong size, void *dst)
 {
 	static iulong decode[256] = { 0xff };
-	const unsigned char *s = (const unsigned char*)src;
-	unsigned char *d = (unsigned char*)dst;
+	const IUINT8 *s = (const IUINT8*)src;
+	IUINT8 *d = (IUINT8*)dst;
 	iulong mark, i, j, c, k;
 	char b[3];
 
 	if (size == 0) return 0;
-
 	if (src == NULL || dst == NULL) {
 		ilong nbytes;
 		nbytes = ((size + 7) / 4) * 3;
@@ -2612,38 +2580,31 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 			c <<= 6;
 			i++;
 			ibase64_skip(s, i, (iulong)size);
-			if (s[i] != '=') {
-				c += decode[s[i]];
-				i++;
-			}	else {
-				i = size;
-				mark = 1;
-			}
+			if (s[i] != '=') c += decode[s[i]], i++;
+			else i = size, mark = 1;
 		}	else {
 			i = size;
 			mark = 2;
 			c <<= 6;
 		}
 
-		b[0] = (unsigned char)((c >> 16) & 0xff);
-		b[1] = (unsigned char)((c >>  8) & 0xff);
-		b[2] = (unsigned char)((c >>  0) & 0xff);
+		b[0] = (IUINT8)((c >> 16) & 0xff);
+		b[1] = (IUINT8)((c >>  8) & 0xff);
+		b[2] = (IUINT8)((c >>  0) & 0xff);
 
-		for (j = 0; j < 3 - mark; j++) {
+		for (j = 0; j < 3 - mark; j++) 
 			d[k++] = b[j];
-		}
 	}
 
 	return (ilong)k;
 }
 
-/* encode data as a base32 string, returns string size,
-   if dst == NULL, returns how many bytes needed for encode (>=real) */
+/* encode data as a base32 string, returns string size */
 ilong ibase32_encode(const void *src, ilong size, char *dst)
 {
 	static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-	const unsigned char *buffer = (const unsigned char*)src;
-	unsigned char word;
+	const IUINT8 *buffer = (const IUINT8*)src;
+	IUINT8 word;
 	ilong i, index;
 	char *ptr = dst;
 
@@ -2682,13 +2643,12 @@ ilong ibase32_encode(const void *src, ilong size, char *dst)
 	return (ilong)(dst - ptr);
 }
 
-/* decode a base32 string into data, returns data size 
-   if dst == NULL, returns how many bytes needed for decode (>=real) */
+/* decode a base32 string into data, returns data size */
 ilong ibase32_decode(const char *src, ilong size, void *dst)
 {
-	const unsigned char *lptr = (const unsigned char*)src;
-	unsigned char *buffer = (unsigned char*)dst;
-	unsigned char word;
+	const IUINT8 *lptr = (const IUINT8*)src;
+	IUINT8 *buffer = (IUINT8*)dst;
+	IUINT8 word;
 	ilong offset, last, i;
 	int index;
 
@@ -2700,7 +2660,7 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 	}
 
 	for(i = 0, index = 0, offset = 0, last = -1; i < size; i++) {
-		unsigned char ch = lptr[i];
+		IUINT8 ch = lptr[i];
 
 		if (ch >= '2' && ch <= '7') word = ch - '2' + 26;
 		else if (ch >= 'A' && ch <= 'Z') word = ch - 'A';
@@ -2730,16 +2690,14 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 	return offset;
 }
 
-/* encode data as a base16 string, returns string size,
-   the 'dst' output size is (2 * size), '\0' isn't appended */
+/* encode data as a base16 string, returns string size */
 ilong ibase16_encode(const void *src, ilong size, char *dst)
 {
-	const char encode[] = "0123456789ABCDEF";
-	const unsigned char *ptr = (const unsigned char*)src;
+	static const char encode[] = "0123456789ABCDEF";
+	const IUINT8 *ptr = (const IUINT8*)src;
 	char *output = dst;
-	if (src == NULL || dst == NULL) {
+	if (src == NULL || dst == NULL) 
 		return 2 * size;
-	}
 	for (; size > 0; output += 2, ptr++, size--) {
 		output[0] = encode[ptr[0] >> 4];
 		output[1] = encode[ptr[0] & 15];
@@ -2747,37 +2705,27 @@ ilong ibase16_encode(const void *src, ilong size, char *dst)
 	return (ilong)(output - dst);
 }
 
-/* decode a base16 string into data, returns data size 
-   if dst == NULL, returns how many bytes needed for decode (>=real) */
+/* decode a base16 string into data, returns data size */
 ilong ibase16_decode(const char *src, ilong size, void *dst)
 {
-	const unsigned char *in = (const unsigned char*)src;
-	unsigned char *out = (unsigned char*)dst;
-	unsigned char word = 0;
-	unsigned char decode = 0;
+	const IUINT8 *in = (const IUINT8*)src;
+	IUINT8 *out = (IUINT8*)dst, word = 0, decode = 0;
 	int index = 0;
 
-	if (src == NULL || dst == NULL) {
+	if (src == NULL || dst == NULL) 
 		return size >> 1;
-	}
 	
 	for (; size > 0; size--) {
-		unsigned char ch = *in++;
+		IUINT8 ch = *in++;
 		if (ch >= '0' && ch <= '9') word = ch - '0';
 		else if (ch >= 'A' && ch <= 'F') word = ch - 'A' + 10;
 		else if (ch >= 'a' && ch <= 'f') word = ch - 'a' + 10;
 		else continue;
-		if (index == 0) {
-			decode = word << 4;
-			index = 1;
-		}	else {
-			decode |= word & 0xf;
-			*out++ = decode;
-			index = 0;
-		}
+		if (index == 0) decode = word << 4, index = 1;
+		else decode |= word & 0xf, *out++ = decode, index = 0;
 	}
 
-	return (ilong)(out - (unsigned char*)dst);
+	return (ilong)(out - (IUINT8*)dst);
 }
 
 
@@ -2794,11 +2742,9 @@ void icrypt_rc4_init(unsigned char *box, int *x, int *y,
 		X = -1;
 		Y = -1;
 	}	else {
-		X = Y = 0;
-		j = k = 0;
-		for (i = 0; i < 256; i++) {
+		X = Y = j = k = 0;
+		for (i = 0; i < 256; i++) 
 			box[i] = (unsigned char)i;
-		}
 		for (i = 0; i < 256; i++) {
 			a = box[i];
 			j = (unsigned char)(j + a + key[k]);
@@ -2818,11 +2764,9 @@ void icrypt_rc4_crypt(unsigned char *box, int *x, int *y,
 	int X = x[0];
 	int Y = y[0];
 	if (X < 0 || Y < 0) {			/* no crypt */
-		if (src != dst) {
+		if (src != dst) 
 			memmove(dst, src, size);
-		}
-	}
-	else {							/* crypt */
+	}	else {						/* crypt */
 		int a, b; 
 		for (; size > 0; src++, dst++, size--) {
 			X = (unsigned char)(X + 1);

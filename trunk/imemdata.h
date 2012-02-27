@@ -1627,6 +1627,9 @@ ivalue_t *it_strrjust(ivalue_t *src, iulong width, char fill);
 /* middle just */
 ivalue_t *it_strmiddle(ivalue_t *src, iulong width, char fill);
 
+/* replace: if count >= 0 only the first count occurrences are replaced */
+ivalue_t *it_replace(const ivalue_t *src, ivalue_t *out,
+	const ivalue_t *str_old, const ivalue_t *str_new, ilong count);
 
 
 /**********************************************************************

@@ -1,10 +1,11 @@
-/**********************************************************************
- *
- * inetcode.c - core interface of socket operation
- *
- * for more information, please see the readme file
- *
- **********************************************************************/
+//=====================================================================
+//
+// inetcode.c - core interface of socket operation
+//
+// NOTE:
+// for more information, please see the readme file
+// 
+//=====================================================================
 
 #ifndef __INETCODE_H__
 #define __INETCODE_H__
@@ -21,9 +22,9 @@ extern "C" {
 #endif
 
 
-/*===================================================================*/
-/* Network Information                                               */
-/*===================================================================*/
+//---------------------------------------------------------------------
+// Network Information
+//---------------------------------------------------------------------
 #define IMAX_HOSTNAME	256
 #define IMAX_ADDRESS	64
 
@@ -52,9 +53,9 @@ int inet_socketpair(int fds[2]);
 int inet_set_keepalive(int sock, int keepcnt, int keepidle, int keepintvl);
 
 
-/*===================================================================*/
-/* ITMCLIENT                                                         */
-/*===================================================================*/
+//---------------------------------------------------------------------
+// ITMCLIENT
+//---------------------------------------------------------------------
 struct ITMCLIENT
 {
 	IUINT32 time;
@@ -124,9 +125,9 @@ void itmc_rc4_set_rkey(struct ITMCLIENT *client,
 	const unsigned char *key, int keylen);
 
 
-/*===================================================================*/
-/* ITMHOST                                                           */
-/*===================================================================*/
+//---------------------------------------------------------------------
+// ITMHOST
+//---------------------------------------------------------------------
 struct ITMHOST
 {
 	struct IMEMNODE *nodes;
@@ -173,40 +174,10 @@ long itms_read(struct ITMHOST *host, int *msg, long *wparam, long *lparam,
 
 
 
-/*===================================================================*/
-/* IHOSTUDP                                                          */
-/*===================================================================*/
-struct IHOSTUDP
-{
-	int sock;
-	int port;
-	int state;
-	char *buffer;
-	int needsend;
-	int needrecv;
-	int needlock;
-	int MTU;
-	IMUTEX_TYPE lock;
-	struct sockaddr local;
-	struct IMEMNODE *cache;
-	struct IMSTREAM recvbuf;
-	struct IMSTREAM sendbuf;
-};
+//---------------------------------------------------------------------
+// Utilies Interface
+//---------------------------------------------------------------------
 
-
-void ihu_init(struct IHOSTUDP *uhost, struct IMEMNODE *cache);
-void ihu_destroy(struct IHOSTUDP *uhost);
-
-int ihu_startup(struct IHOSTUDP *uhost, int port);
-int ihu_shutdown(struct IHOSTUDP *uhost);
-
-void ihu_process(struct IHOSTUDP *uhost);
-
-int ihu_sendto(struct IHOSTUDP *uhost, struct sockaddr *remote, 
-	const void *buf, int size);
-
-int ihu_recvfrom(struct IHOSTUDP *uhost, struct sockaddr *remote,
-	void *buf, int size);
 
 
 #ifdef __cplusplus
