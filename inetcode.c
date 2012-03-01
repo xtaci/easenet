@@ -144,68 +144,201 @@ int inet_socketpair(int fds[2])
 }
 
 
-/*-------------------------------------------------------------------*/
-/* set keepalive                                                     */
-/*-------------------------------------------------------------------*/
-int inet_set_keepalive(int sock, int keepcnt, int keepidle, int keepintvl)
-{
-	int enable = (keepcnt < 0 || keepidle < 0 || keepintvl < 0)? 0 : 1;
 
-#if (defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64))
-	#define _SIO_KEEPALIVE_VALS _WSAIOW(IOC_VENDOR, 4)
-	unsigned long keepalive[3], oldkeep[3], retval;
-	OSVERSIONINFO info;
-	int candoit = 0;
-
-	info.dwOSVersionInfoSize = sizeof(info);
-	GetVersionEx(&info);
-
-	if (info.dwPlatformId == VER_PLATFORM_WIN32_NT) {
-		if ((info.dwMajorVersion == 5 && info.dwMinorVersion >= 1) ||
-			(info.dwMajorVersion >= 6)) {
-			candoit = 1;
-		}
-	}
-
-	retval = 1;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&retval, 
-		sizeof(retval));
-
-	if (candoit) {
-		int ret = 0;
-		keepalive[0] = enable? 1 : 0;
-		keepalive[1] = ((unsigned long)keepidle) * 1000;
-		keepalive[2] = ((unsigned long)keepintvl) * 1000;
-		ret = WSAIoctl((unsigned int)sock, _SIO_KEEPALIVE_VALS, 
-			(LPVOID)keepalive, 12, (LPVOID)oldkeep, 12, &retval, NULL, NULL);
-		if (ret == SOCKET_ERROR) {
-			return -1;
-		}
-	}	else {
-		return -2;
-	}
-	
-
-#elif defined(SOL_TCL) && defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL)
-	unsigned long value;
-	value = 1;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void*)&value, sizeof(long));
-	value = keepcnt;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (void*)value, sizeof(long));
-	value = keepidle;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (void*)value, sizeof(long));
-	value = keepintvl;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (void*)value, sizeof(long));
-#else
-	unsigned long value;
-	value = 1;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void*)&value, sizeof(long));
-
-	return -1;
+//---------------------------------------------------------------------
+// System Utilities
+//---------------------------------------------------------------------
+#ifdef IENABLE_SHARED_LIBRARY
+	#if defined(__unix)
+		#include <dlfcn.h>
+	#endif
 #endif
 
+void *iutils_shared_open(const char *dllname)
+{
+#ifdef IENABLE_SHARED_LIBRARY
+	#ifdef __unix
+	return dlopen(dllname, RTLD_LAZY);
+	#else
+	return (void*)LoadLibraryA(dllname);
+	#endif
+#else
+	return NULL;
+#endif
+}
+
+void *iutils_shared_get(void *shared, const char *name)
+{
+#ifdef IENABLE_SHARED_LIBRARY
+	#ifdef __unix
+	return dlsym(shared, name);
+	#else
+	return (void*)GetProcAddress((HINSTANCE)shared, name);
+	#endif
+#else
+	return NULL;
+#endif
+}
+
+void iutils_shared_close(void *shared)
+{
+#ifdef IENABLE_SHARED_LIBRARY
+	#ifdef __unix
+	dlclose(shared);
+	#else
+	FreeLibrary((HINSTANCE)shared);
+	#endif
+#else
+	return NULL;
+#endif
+}
+
+
+// load file content
+void *iutils_file_load_content(const char *filename, ilong *size)
+{
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+	struct IMSTREAM ims;
+	size_t length;
+	char *ptr;
+	FILE *fp;
+
+	ims_init(&ims, NULL, 0, 0);
+	fp = fopen(filename, "rb");
+	
+	ptr = (char*)ikmem_malloc(1024);
+	if (ptr == NULL) {
+		fclose(fp);
+		if (size) size[0] = 0;
+		return NULL;
+	}
+	for (length = 0; ; ) {
+		size_t ret = fread(ptr, 1, 1024, fp);
+		if (ret == 0) break;
+		length += ret;
+		ims_write(&ims, ptr, (ilong)ret);
+	}
+
+	ikmem_free(ptr);
+	fclose(fp);
+	
+	ptr = (char*)ikmem_malloc((size_t)length);
+
+	if (ptr) {
+		ims_read(&ims, ptr, length);
+	}	else {
+		length = 0;
+	}
+
+	ims_destroy(&ims);
+
+	if (size) size[0] = length;
+
+	return ptr;
+#else
+	return NULL;
+#endif
+}
+
+
+// load file content
+int iutils_file_load_to_str(const char *filename, ivalue_t *str)
+{
+	char *ptr;
+	ilong size;
+	ptr = (char*)iutils_file_load_content(filename, &size);
+	if (ptr == NULL) {
+		it_sresize(str, 0);
+		return -1;
+	}
+	it_strcpyc(str, ptr, size);
+	ikmem_free(ptr);
 	return 0;
 }
+
+#ifndef IUTILS_STACK_BUFFER_SIZE
+#define IUTILS_STACK_BUFFER_SIZE	1024
+#endif
+
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+
+// load line: returns -1 for end of file, 0 for success
+int iutils_file_read_line(FILE *fp, ivalue_t *str)
+{
+	const int bufsize = IUTILS_STACK_BUFFER_SIZE;
+	int size, eof = 0;
+	char buffer[IUTILS_STACK_BUFFER_SIZE];
+
+	it_sresize(str, 0);
+	for (size = 0, eof = 0; ; ) {
+		int ch = fgetc(fp);
+		if (ch < 0) {
+			eof = 1;
+			break;
+		}
+		buffer[size++] = (unsigned char)ch;
+		if (size >= bufsize) {
+			it_strcatc(str, buffer, size);
+			size = 0;
+		}
+		if (ch == '\n') break;
+	}
+	if (size > 0) {
+		it_strcatc(str, buffer, size);
+	}
+	if (eof && it_size(str) == 0) return -1;
+	it_strstripc(str, "\r\n");
+	return 0;
+}
+
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
+
+
+// cross os GetModuleFileName, returns size for success, -1 for error
+int iutils_get_proc_pathname(char *ptr, int size)
+{
+	int retval = -1;
+#if defined(_WIN32)
+	DWORD hr = GetModuleFileNameA(NULL, ptr, (DWORD)size);
+	if (hr > 0) retval = (int)hr;
+#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+	int mib[4];
+	size_t cb = (size_t)size;
+	int hr;
+	mib[0] = CTL_KERN;
+	mib[1] = KERN_PROC;
+	mib[2] = KERN_PROC_PATHNAME;
+	mib[3] = -1;
+	hr = sysctl(mib, 4, ptr, &cb, NULL, 0);
+	if (hr >= 0) retval = (int)cb;
+#elif defined(linux) || defined(__CYGWIN__)
+	ilong length;
+	char *text;
+	text = (char*)iutils_file_load_content("/proc/self/exename", &length);
+	if (text) {
+		retval = (int)(length < size? length : size);
+		memcpy(ptr, text, retval);
+		ikmem_free(text);
+	}	else {
+	}
+#else
+#endif
+	if (retval >= 0 && retval + 1 < size) {
+		ptr[retval] = '\0';
+	}	else if (size > 0) {
+		ptr[0] = '\0';
+	}
+
+	if (size > 0) ptr[size - 1] = 0;
+
+	return retval;
+}
+
+#endif
+
 
 
 /*===================================================================*/
@@ -267,7 +400,7 @@ int itmc_connect(struct ITMCLIENT *client, const struct sockaddr *addr)
 	ims_clear(&client->recvmsg);
 
 	if (client->buffer == NULL) {
-		client->buffer = ikmem_malloc(ITMC_BUFSIZE + 512);
+		client->buffer = (char*)ikmem_malloc(ITMC_BUFSIZE + 512);
 		if (client->buffer == NULL) return -1;
 		client->rc4_send_box = (unsigned char*)client->buffer + ITMC_BUFSIZE;
 		client->rc4_recv_box = client->rc4_send_box + 256;
@@ -296,7 +429,7 @@ int itmc_assign(struct ITMCLIENT *client, int sock)
 	client->sock = -1;
 
 	if (client->buffer == NULL) {
-		client->buffer = ikmem_malloc(ITMC_BUFSIZE + 512);
+		client->buffer = (char*)ikmem_malloc(ITMC_BUFSIZE + 512);
 		if (client->buffer == NULL) return -1;
 		client->rc4_send_box = (unsigned char*)client->buffer + ITMC_BUFSIZE;
 		client->rc4_recv_box = client->rc4_send_box + 256;
@@ -1019,8 +1152,810 @@ long itms_next(struct ITMHOST *host, long hid)
 }
 
 
+//---------------------------------------------------------------------
+// Posix Stat
+//---------------------------------------------------------------------
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#include <sys/types.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <io.h>
+#endif
+
+#ifdef __unix
+typedef struct stat iposix_ostat_t;
+#define iposix_stat_proc	stat
+#define iposix_lstat_proc	lstat
+#define iposix_fstat_proc	fstat
+#else
+typedef struct _stat iposix_ostat_t;
+#define iposix_stat_proc	_stat
+#define iposix_lstat_proc	_stat
+#define iposix_fstat_proc	_fstat
+#endif
+
+
+#if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
+	#if defined(_S_IFMT) && (!defined(S_IFMT))
+		#define S_IFMT _S_IFMT
+	#endif
+
+	#if defined(_S_IFDIR) && (!defined(S_IFDIR))
+		#define S_IFDIR _S_IFDIR
+	#endif
+
+	#if defined(_S_IFCHR) && (!defined(S_IFCHR))
+		#define S_IFCHR _S_IFCHR
+	#endif
+
+	#if defined(_S_IFIFO) && (!defined(S_IFIFO))
+		#define S_IFIFO _S_IFIFO
+	#endif
+
+	#if defined(_S_IFREG) && (!defined(S_IFREG))
+		#define S_IFREG _S_IFREG
+	#endif
+
+	#if defined(_S_IREAD) && (!defined(S_IREAD))
+		#define S_IREAD _S_IREAD
+	#endif
+
+	#if defined(_S_IWRITE) && (!defined(S_IWRITE))
+		#define S_IWRITE _S_IWRITE
+	#endif
+
+	#if defined(_S_IEXEC) && (!defined(S_IEXEC))
+		#define S_IEXEC _S_IEXEC
+	#endif
+#endif
+
+#define IX_FMT(m, t)  (((m) & S_IFMT) == (t))
+
+
+// convert stat structure
+void iposix_stat_convert(iposix_stat_t *ostat, const iposix_ostat_t *x)
+{
+	ostat->st_mode = 0;
+
+	#ifdef S_IFDIR
+	if (IX_FMT(x->st_mode, S_IFDIR)) ostat->st_mode |= ISTAT_IFDIR;
+	#endif
+	#ifdef S_IFCHR
+	if (IX_FMT(x->st_mode, S_IFCHR)) ostat->st_mode |= ISTAT_IFCHR;
+	#endif
+	#ifdef S_IFBLK
+	if (IX_FMT(x->st_mode, S_IFBLK)) ostat->st_mode |= ISTAT_IFBLK;
+	#endif
+	#ifdef S_IFREG
+	if (IX_FMT(x->st_mode, S_IFREG)) ostat->st_mode |= ISTAT_IFREG;
+	#endif
+	#ifdef S_IFIFO
+	if (IX_FMT(x->st_mode, S_IFIFO)) ostat->st_mode |= ISTAT_IFIFO;
+	#endif
+	#ifdef S_IFLNK
+	if (IX_FMT(x->st_mode, S_IFLNK)) ostat->st_mode |= ISTAT_IFLNK;
+	#endif
+	#ifdef S_IFSOCK
+	if (IX_FMT(x->st_mode, S_IFSOCK)) ostat->st_mode |= ISTAT_IFSOCK;
+	#endif
+	#ifdef S_IFWHT
+	if (IX_FMT(x->st_mode, S_IFWHT)) ostat->st_mode |= ISTAT_IFWHT;
+	#endif
+
+#ifdef S_IREAD
+	if (x->st_mode & S_IREAD) ostat->st_mode |= ISTAT_IRUSR;
+#endif
+
+#ifdef S_IWRITE
+	if (x->st_mode & S_IWRITE) ostat->st_mode |= ISTAT_IWUSR;
+#endif
+
+#ifdef S_IEXEC
+	if (x->st_mode & S_IEXEC) ostat->st_mode |= ISTAT_IXUSR;
+#endif
+
+#ifdef S_IRUSR
+	if (x->st_mode & S_IRUSR) ostat->st_mode |= ISTAT_IRUSR;
+	if (x->st_mode & S_IWUSR) ostat->st_mode |= ISTAT_IWUSR;
+	if (x->st_mode & S_IXUSR) ostat->st_mode |= ISTAT_IXUSR;
+#endif
+
+#ifdef S_IRGRP
+	if (x->st_mode & S_IRGRP) ostat->st_mode |= ISTAT_IRGRP;
+	if (x->st_mode & S_IWGRP) ostat->st_mode |= ISTAT_IWGRP;
+	if (x->st_mode & S_IXGRP) ostat->st_mode |= ISTAT_IXGRP;
+#endif
+
+#ifdef S_IROTH
+	if (x->st_mode & S_IROTH) ostat->st_mode |= ISTAT_IROTH;
+	if (x->st_mode & S_IWOTH) ostat->st_mode |= ISTAT_IWOTH;
+	if (x->st_mode & S_IXOTH) ostat->st_mode |= ISTAT_IXOTH;
+#endif
+	
+	ostat->st_size = (IUINT64)x->st_size;
+
+	ostat->atime = (IUINT32)x->st_atime;
+	ostat->mtime = (IUINT32)x->st_mtime;
+	ostat->ctime = (IUINT32)x->st_mtime;
+
+	ostat->st_ino = (IUINT64)x->st_ino;
+	ostat->st_dev = (IUINT32)x->st_dev;
+	ostat->st_nlink = (IUINT32)x->st_nlink;
+	ostat->st_uid = (IUINT32)x->st_uid;
+	ostat->st_gid = (IUINT32)x->st_gid;
+	ostat->st_rdev = (IUINT32)x->st_rdev;
+
+#if defined(__unix)
+	ostat->st_blocks = (IUINT32)x->st_blocks;
+	ostat->st_blksize = (IUINT32)x->st_blksize;
+	#if !defined(__CYGWIN__)
+	ostat->st_flags = (IUINT32)x->st_flags;
+	#endif
+#endif
+}
+
+// returns 0 for success, -1 for error
+int iposix_stat_imp(const char *path, iposix_stat_t *ostat)
+{
+	iposix_ostat_t xstat;
+	int retval;
+	retval = iposix_stat_proc(path, &xstat);
+	if (retval != 0) return -1;
+	iposix_stat_convert(ostat, &xstat);
+	return 0;
+}
+
+// returns 0 for success, -1 for error
+int iposix_lstat_imp(const char *path, iposix_stat_t *ostat)
+{
+	iposix_ostat_t xstat;
+	int retval;
+	retval = iposix_lstat_proc(path, &xstat);
+	if (retval != 0) return -1;
+	iposix_stat_convert(ostat, &xstat);
+	return 0;
+}
+
+// returns 0 for success, -1 for error
+int iposix_fstat(int fd, iposix_stat_t *ostat)
+{
+	iposix_ostat_t xstat;
+	int retval;
+	retval = iposix_fstat_proc(fd, &xstat);
+	if (retval != 0) return -1;
+	iposix_stat_convert(ostat, &xstat);
+	return 0;
+}
+
+// normalize stat path
+static void iposix_path_stat(const char *src, char *dst)
+{
+	int size = (int)strlen(src);
+	if (size > IPOSIX_MAXPATH) size = IPOSIX_MAXPATH;
+	memcpy(dst, src, size + 1);
+	if (size > 1) {
+		int trim = 1;
+		if (size == 3) {
+			if (isalpha(dst[0]) && dst[1] == ':' && 
+				(dst[2] == '/' || dst[2] == '\\')) trim = 0;
+		}
+		if (size == 1) {
+			if (dst[0] == '/' || dst[0] == '\\') trim = 0;
+		}
+		if (trim) {
+			if (dst[size - 1] == '/' || dst[size - 1] == '\\') {
+				dst[size - 1] = 0;
+				size--;
+			}
+		}
+	}
+}
+
+
+// returns 0 for success, -1 for error
+int iposix_stat(const char *path, iposix_stat_t *ostat)
+{
+	char buf[IPOSIX_MAXBUFF];
+	iposix_path_stat(path, buf);
+	return iposix_stat_imp(buf, ostat);
+}
+
+// returns 0 for success, -1 for error
+int iposix_lstat(const char *path, iposix_stat_t *ostat)
+{
+	char buf[IPOSIX_MAXBUFF];
+	iposix_path_stat(path, buf);
+	return iposix_lstat_imp(buf, ostat);
+}
+
+// get current directory
+char *iposix_getcwd(char *path, int size)
+{
+#ifdef _WIN32
+	return _getcwd(path, size);
+#else
+	return getcwd(path);
+#endif
+}
+
+// create directory
+int iposix_mkdir(const char *path, int mode)
+{
+#ifdef _WIN32
+	return _mkdir(path);
+#else
+	if (mode < 0) mode = 0755;
+	return mkdir(path, mode);
+#endif
+}
+
+// returns 1 for true 0 for false, -1 for not exist
+int iposix_path_isdir(const char *path)
+{
+	iposix_stat_t s;
+	int hr = iposix_stat(path, &s);
+	if (hr != 0) return -1;
+	return (ISTAT_ISDIR(s.st_mode))? 1 : 0;
+}
+
+// returns 1 for true 0 for false, -1 for not exist
+int iposix_path_isfile(const char *path)
+{
+	iposix_stat_t s;
+	int hr = iposix_stat(path, &s);
+	if (hr != 0) return -1;
+	return (ISTAT_ISDIR(s.st_mode))? 0 : 1;
+}
+
+// returns 1 for true 0 for false, -1 for not exist
+int iposix_path_islink(const char *path)
+{
+	iposix_stat_t s;
+	int hr = iposix_stat(path, &s);
+	if (hr != 0) return -1;
+	return (ISTAT_ISLNK(s.st_mode))? 1 : 0;
+}
+
+// returns 1 for true 0 for false
+int iposix_path_exists(const char *path)
+{
+	iposix_stat_t s;
+	int hr = iposix_stat(path, &s);
+	if (hr != 0) return 0;
+	return 1;
+}
+
+// returns file size, -1 for error
+IINT64 iposix_path_getsize(const char *path)
+{
+	iposix_stat_t s;
+	int hr = iposix_stat(path, &s);
+	if (hr != 0) return -1;
+	return (IINT64)s.st_size;
+}
+
+
+#endif
 
 //---------------------------------------------------------------------
-// Inline Utilies
+// CSV Reader/Writer
 //---------------------------------------------------------------------
+struct iCsvReader
+{
+	istring_list_t *source;
+	istring_list_t *strings;
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+	FILE *fp;
+#endif
+	ivalue_t string;
+	ilong line;
+	int count;
+};
+
+struct iCsvWriter
+{
+	ivalue_t string;
+	ivalue_t output;
+	int mode;
+	istring_list_t *strings;
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+	FILE *fp;
+#endif
+};
+
+
+/* open csv reader from file */
+iCsvReader *icsv_reader_open_file(const char *filename)
+{
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+	iCsvReader *reader;
+	FILE *fp;
+	fp = fopen(filename, "rb");
+	if (fp == NULL) return NULL;
+	reader = (iCsvReader*)ikmem_malloc(sizeof(iCsvReader));
+	if (reader == NULL) {
+		fclose(fp);
+		return NULL;
+	}
+	it_init(&reader->string, ITYPE_STR);
+	reader->fp = fp;
+	reader->source = NULL;
+	reader->strings = NULL;
+	reader->line = 0;
+	reader->count = 0;
+	return reader;
+#else
+	return NULL;
+#endif
+}
+
+/* open csv reader from memory */
+iCsvReader *icsv_reader_open_memory(const char *text, ilong size)
+{
+	iCsvReader *reader;
+	reader = (iCsvReader*)ikmem_malloc(sizeof(iCsvReader));
+	if (reader == NULL) {
+		return NULL;
+	}
+
+	it_init(&reader->string, ITYPE_STR);
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+	reader->fp = NULL;
+#endif
+	reader->source = NULL;
+	reader->strings = NULL;
+	reader->line = 0;
+	reader->count = 0;
+
+	reader->source = istring_list_split(text, size, "\n", 1);
+	if (reader->source == NULL) {
+		ikmem_free(reader);
+		return NULL;
+	}
+
+	return reader;
+}
+
+void icsv_reader_close(iCsvReader *reader)
+{
+	if (reader) {
+		if (reader->strings) {
+			istring_list_delete(reader->strings);
+			reader->strings = NULL;
+		}
+		if (reader->source) {
+			istring_list_delete(reader->source);
+			reader->source = NULL;
+		}
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+		if (reader->fp) {
+			fclose(reader->fp);
+			reader->fp = NULL;
+		}
+#endif
+		reader->line = 0;
+		reader->count = 0;
+		it_destroy(&reader->string);
+		ikmem_free(reader);
+	}
+}
+
+// parse row
+void icsv_reader_parse(iCsvReader *reader, ivalue_t *str)
+{
+	if (reader->strings) {
+		istring_list_delete(reader->strings);
+		reader->strings = NULL;
+	}
+
+	reader->strings = istring_list_csv_decode(it_str(str), it_size(str));
+	reader->count = 0;
+
+	if (reader->strings) {
+		reader->count = (int)reader->strings->count;
+	}
+}
+
+// read csv row
+int icsv_reader_read(iCsvReader *reader)
+{
+	if (reader == NULL) return 0;
+	if (reader->strings) {
+		istring_list_delete(reader->strings);
+		reader->strings = NULL;
+	}
+	reader->count = 0;
+	if (reader->source) {	// 使用文本模式
+		ivalue_t *str;
+		if (reader->line >= reader->source->count) {
+			istring_list_delete(reader->source);
+			reader->source = NULL;
+			return -1;
+		}
+		str = reader->source->values[reader->line++];
+		it_strstripc(str, "\r\n");
+		icsv_reader_parse(reader, str);
+	}
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+	else if (reader->fp) {
+		if (iutils_file_read_line(reader->fp, &reader->string) != 0) {
+			fclose(reader->fp);
+			reader->fp = 0;
+			return -1;
+		}
+		reader->line++;
+		it_strstripc(&reader->string, "\r\n");
+		icsv_reader_parse(reader, &reader->string);
+	}
+#endif
+	else {
+		reader->count = 0;
+		return -1;
+	}
+	if (reader->strings == NULL) 
+		return -1;
+	return reader->count;
+}
+
+// get column count in current row
+int icsv_reader_size(const iCsvReader *reader)
+{
+	return reader->count;
+}
+
+// returns 1 for end of file, 0 for not end.
+int icsv_reader_eof(const iCsvReader *reader)
+{
+	void *fp = NULL;
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+	fp = (void*)reader->fp;
+#endif
+	if (fp == NULL && reader->source == NULL) return 1;
+	return 0;
+}
+
+// get column string
+ivalue_t *icsv_reader_get(iCsvReader *reader, int pos)
+{
+	if (reader == NULL) return NULL;
+	if (pos < 0 || pos >= reader->count) return NULL;
+	if (reader->strings == NULL) return NULL;
+	return reader->strings->values[pos];
+}
+
+// get column string
+const ivalue_t *icsv_reader_get_const(const iCsvReader *reader, int pos)
+{
+	if (reader == NULL) return NULL;
+	if (pos < 0 || pos >= reader->count) return NULL;
+	if (reader->strings == NULL) return NULL;
+	return reader->strings->values[pos];
+}
+
+// return column string size, -1 for error
+int icsv_reader_get_size(const iCsvReader *reader, int pos)
+{
+	const ivalue_t *str = icsv_reader_get_const(reader, pos);
+	if (str == NULL) return -1;
+	return (int)it_size(str);
+}
+
+// return column string, returns string size for success, -1 for error
+int icsv_reader_get_string(const iCsvReader *reader, int pos, ivalue_t *out)
+{
+	const ivalue_t *str = icsv_reader_get_const(reader, pos);
+	if (str == NULL) {
+		it_sresize(out, 0);
+		return -1;
+	}
+	it_cpy(out, str);
+	return (int)it_size(str);
+}
+
+// return column string, returns string size for success, -1 for error
+int icsv_reader_get_cstr(const iCsvReader *reader, int pos, 
+	char *out, int size)
+{
+	const ivalue_t *str = icsv_reader_get_const(reader, pos);
+	if (str == NULL) {
+		if (size > 0) out[0] = 0;
+		return -1;
+	}
+	if ((ilong)it_size(str) > (ilong)size) {
+		if (size > 0) out[0] = 0;
+		return -1;
+	}
+	memcpy(out, it_str(str), it_size(str));
+	if (size > (int)it_size(str) + 1) {
+		out[it_size(str)] = 0;
+	}
+	return (int)it_size(str);
+}
+
+
+
+// open csv writer from file: if filename is NULL, it will open in memory
+iCsvWriter *icsv_writer_open(const char *filename, int append)
+{
+	iCsvWriter *writer;
+
+	writer = (iCsvWriter*)ikmem_malloc(sizeof(iCsvWriter));
+	if (writer == NULL) return NULL;
+
+	if (filename != NULL) {
+		void *fp = NULL;
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+		writer->fp = fopen(filename, append? "a" : "w");
+		if (writer->fp && append) {
+			fseek(writer->fp, 0, SEEK_END);
+		}
+		fp = writer->fp;
+#endif
+		if (fp == NULL) {
+			ikmem_free(writer);
+			return NULL;
+		}
+		writer->mode = 1;
+	}	else {
+		writer->mode = 2;
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+		writer->fp = NULL;
+#endif
+	}
+
+	writer->strings = istring_list_new();
+
+	if (writer->strings == NULL) {
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+		if (writer->fp) {
+			fclose(writer->fp);
+		}
+#endif
+		ikmem_free(writer);
+		return NULL;
+	}
+
+	it_init(&writer->string, ITYPE_STR);
+	it_init(&writer->output, ITYPE_STR);
+
+	return writer;
+}
+
+// close csv writer
+void icsv_writer_close(iCsvWriter *writer)
+{
+	if (writer) {
+		if (writer->strings) {
+			istring_list_delete(writer->strings);
+			writer->strings = NULL;
+		}
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+		if (writer->fp) {
+			fclose(writer->fp);
+			writer->fp = NULL;
+		}
+#endif
+		writer->mode = 0;
+		it_destroy(&writer->string);
+		it_destroy(&writer->output);
+		ikmem_free(writer);
+	}
+}
+
+// write row and reset
+int icsv_writer_write(iCsvWriter *writer)
+{
+	istring_list_csv_encode(writer->strings, &writer->string);
+	it_strcatc(&writer->string, "\n", 1);
+	if (writer->mode == 1) {
+#ifdef IENABLE_FILE_SYSTEM_ACCESS
+		if (writer->fp) {
+			fwrite(it_str(&writer->string), 1, 
+				it_size(&writer->string), writer->fp);
+}
+#endif
+	}	
+	else if (writer->mode == 2) {
+		it_strcat(&writer->output, &writer->string);
+	}
+	istring_list_clear(writer->strings);
+	return 0;
+}
+
+// return column count in current row
+int icsv_writer_size(iCsvWriter *writer)
+{
+	return writer->strings->count;
+}
+
+// clear columns in current row
+void icsv_writer_clear(iCsvWriter *writer)
+{
+	istring_list_clear(writer->strings);
+}
+
+// dump output
+void icsv_writer_dump(iCsvWriter *writer, ivalue_t *out)
+{
+	it_cpy(out, &writer->output);
+}
+
+// clear output
+void icsv_writer_empty(iCsvWriter *writer)
+{
+	it_sresize(&writer->output, 0);
+}
+
+// push string
+int icsv_writer_push(iCsvWriter *writer, const ivalue_t *str)
+{
+	if (writer == NULL) return -1;
+	return istring_list_push_back(writer->strings, str);
+}
+
+// push c string
+int icsv_writer_push_cstr(iCsvWriter *writer, const char *ptr, int size)
+{
+	if (writer == NULL) return -1;
+	if (size < 0) size = (int)strlen(ptr);
+	return istring_list_push_backc(writer->strings, ptr, size);
+}
+
+
+// utils for reader
+int icsv_reader_get_long(const iCsvReader *reader, int i, long *x)
+{
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0;
+	if (src == NULL) return -1;
+	*x = istrtol(it_str(src), NULL, 0);
+	return 0;
+}
+
+int icsv_reader_get_ulong(const iCsvReader *reader, int i, unsigned long *x)
+{
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0;
+	if (src == NULL) return -1;
+	*x = istrtoul(it_str(src), NULL, 0);
+	return 0;
+}
+
+int icsv_reader_get_int(const iCsvReader *reader, int i, int *x)
+{
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0;
+	if (src == NULL) return -1;
+	*x = (int)istrtol(it_str(src), NULL, 0);
+	return 0;
+}
+
+int icsv_reader_get_uint(const iCsvReader *reader, int i, unsigned int *x)
+{
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0;
+	if (src == NULL) return -1;
+	*x = (unsigned int)istrtoul(it_str(src), NULL, 0);
+	return 0;
+}
+
+int icsv_reader_get_int64(const iCsvReader *reader, int i, IINT64 *x)
+{
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0;
+	if (src == NULL) return -1;
+	*x = istrtoll(it_str(src), NULL, 0);
+	return 0;
+}
+
+int icsv_reader_get_uint64(const iCsvReader *reader, int i, IUINT64 *x)
+{
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0;
+	if (src == NULL) return -1;
+	*x = istrtoull(it_str(src), NULL, 0);
+	return 0;
+}
+
+int icsv_reader_get_float(const iCsvReader *reader, int i, float *x)
+{
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0.0f;
+	if (src == NULL) return -1;
+	sscanf(it_str(src), "%f", x);
+	return 0;
+}
+
+int icsv_reader_get_double(const iCsvReader *reader, int i, double *x)
+{
+	float vv;
+	const ivalue_t *src = icsv_reader_get_const(reader, i);
+	*x = 0.0;
+	if (src == NULL) return -1;
+	sscanf(it_str(src), "%f", &vv);
+	*x = vv;
+	return 0;
+}
+
+
+// utils for writer
+int icsv_writer_push_long(iCsvWriter *writer, long x, int radix)
+{
+	char digit[32];
+	if (radix == 10 || radix == 0) {
+		iltoa(x, digit, 10);
+	}
+	else if (radix == 16) {
+		return icsv_writer_push_ulong(writer, (unsigned long)x, 16);
+	}
+	return icsv_writer_push_cstr(writer, digit, -1);
+}
+
+
+int icsv_writer_push_ulong(iCsvWriter *writer, unsigned long x, int radix)
+{
+	char digit[32];
+	if (radix == 10 || radix == 0) {
+		iultoa(x, digit, 10);
+	}
+	else if (radix == 16) {
+		digit[0] = '0';
+		digit[1] = 'x';
+		iultoa(x, digit + 2, 16);
+	}
+	return icsv_writer_push_cstr(writer, digit, -1);
+}
+
+int icsv_writer_push_int(iCsvWriter *writer, int x, int radix)
+{
+	return icsv_writer_push_long(writer, (long)x, radix);
+}
+
+int icsv_writer_push_uint(iCsvWriter *writer, unsigned int x, int radix)
+{
+	return icsv_writer_push_ulong(writer, (unsigned long)x, radix);
+}
+
+int icsv_writer_push_int64(iCsvWriter *writer, IINT64 x, int radix)
+{
+	char digit[32];
+	if (radix == 10 || radix == 0) {
+		illtoa(x, digit, 10);
+	}
+	else if (radix == 16) {
+		return icsv_writer_push_uint64(writer, (IUINT64)x, 16);
+	}
+	return icsv_writer_push_cstr(writer, digit, -1);
+}
+
+int icsv_writer_push_uint64(iCsvWriter *writer, long x, int radix)
+{
+	char digit[32];
+	if (radix == 10 || radix == 0) {
+		iulltoa(x, digit, 10);
+	}
+	else if (radix == 16) {
+		digit[0] = '0';
+		digit[1] = 'x';
+		iulltoa(x, digit + 2, 16);
+	}
+	return icsv_writer_push_cstr(writer, digit, -1);
+}
+
+int icsv_writer_push_float(iCsvWriter *writer, float x)
+{
+	char digit[32];
+	sprintf(digit, "%f", (float)x);
+	return icsv_writer_push_cstr(writer, digit, -1);
+}
+
+int icsv_writer_push_double(iCsvWriter *writer, double x)
+{
+	char digit[32];
+	sprintf(digit, "%f", (float)x);
+	return icsv_writer_push_cstr(writer, digit, -1);
+}
+
 
