@@ -847,9 +847,11 @@ int ipollfds(const int *fds, const int *events, int *revents, int count,
 int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 {
 	int enable = (keepcnt < 0 || keepidle < 0 || keepintvl < 0)? 0 : 1;
+	unsigned long value;
+
 #if (defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64))
 	#define _SIO_KEEPALIVE_VALS _WSAIOW(IOC_VENDOR, 4)
-	unsigned long keepalive[3], oldkeep[3], retval;
+	unsigned long keepalive[3], oldkeep[3];
 	OSVERSIONINFO info;
 	int candoit = 0;
 
@@ -863,9 +865,9 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 		}
 	}
 
-	retval = 1;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&retval, 
-		sizeof(retval));
+	value = 1;
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, 
+		sizeof(value));
 
 	if (candoit) {
 		int ret = 0;
@@ -873,7 +875,7 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 		keepalive[1] = ((unsigned long)keepidle) * 1000;
 		keepalive[2] = ((unsigned long)keepintvl) * 1000;
 		ret = WSAIoctl((unsigned int)sock, _SIO_KEEPALIVE_VALS, 
-			(LPVOID)keepalive, 12, (LPVOID)oldkeep, 12, &retval, NULL, NULL);
+			(LPVOID)keepalive, 12, (LPVOID)oldkeep, 12, &value, NULL, NULL);
 		if (ret == SOCKET_ERROR) {
 			return -1;
 		}
@@ -883,20 +885,19 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 	
 
 #elif defined(SOL_TCL) && defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL)
-	unsigned long value;
+
 	value = 1;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void*)&value, sizeof(long));
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
 	value = keepcnt;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (void*)value, sizeof(long));
+	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (char*)&value, sizeof(long));
 	value = keepidle;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (void*)value, sizeof(long));
+	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (char*)&value, sizeof(long));
 	value = keepintvl;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (void*)value, sizeof(long));
+	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (char*)&value, sizeof(long));
 	value = enable;
 #else
-	unsigned long value;
 	value = 1;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void*)&value, sizeof(long));
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
 	value = enable;
 	return -1;
 #endif
