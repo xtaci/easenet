@@ -148,7 +148,7 @@ int inet_socketpair(int fds[2])
 //---------------------------------------------------------------------
 // System Utilities
 //---------------------------------------------------------------------
-#ifdef IENABLE_SHARED_LIBRARY
+#ifndef IDISABLE_SHARED_LIBRARY
 	#if defined(__unix)
 		#include <dlfcn.h>
 	#endif
@@ -156,7 +156,7 @@ int inet_socketpair(int fds[2])
 
 void *iutils_shared_open(const char *dllname)
 {
-#ifdef IENABLE_SHARED_LIBRARY
+#ifndef IDISABLE_SHARED_LIBRARY
 	#ifdef __unix
 	return dlopen(dllname, RTLD_LAZY);
 	#else
@@ -169,7 +169,7 @@ void *iutils_shared_open(const char *dllname)
 
 void *iutils_shared_get(void *shared, const char *name)
 {
-#ifdef IENABLE_SHARED_LIBRARY
+#ifndef IDISABLE_SHARED_LIBRARY
 	#ifdef __unix
 	return dlsym(shared, name);
 	#else
@@ -182,14 +182,12 @@ void *iutils_shared_get(void *shared, const char *name)
 
 void iutils_shared_close(void *shared)
 {
-#ifdef IENABLE_SHARED_LIBRARY
+#ifndef IDISABLE_SHARED_LIBRARY
 	#ifdef __unix
 	dlclose(shared);
 	#else
 	FreeLibrary((HINSTANCE)shared);
 	#endif
-#else
-	return NULL;
 #endif
 }
 
@@ -197,7 +195,7 @@ void iutils_shared_close(void *shared)
 // load file content
 void *iutils_file_load_content(const char *filename, ilong *size)
 {
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 	struct IMSTREAM ims;
 	size_t length;
 	char *ptr;
@@ -260,7 +258,7 @@ int iutils_file_load_to_str(const char *filename, ivalue_t *str)
 #define IUTILS_STACK_BUFFER_SIZE	1024
 #endif
 
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 
 // load line: returns -1 for end of file, 0 for success
 int iutils_file_read_line(FILE *fp, ivalue_t *str)
@@ -1152,292 +1150,6 @@ long itms_next(struct ITMHOST *host, long hid)
 }
 
 
-//---------------------------------------------------------------------
-// Posix Stat
-//---------------------------------------------------------------------
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#ifdef _WIN32
-#include <direct.h>
-#include <io.h>
-#endif
-
-#ifdef __unix
-typedef struct stat iposix_ostat_t;
-#define iposix_stat_proc	stat
-#define iposix_lstat_proc	lstat
-#define iposix_fstat_proc	fstat
-#else
-typedef struct _stat iposix_ostat_t;
-#define iposix_stat_proc	_stat
-#define iposix_lstat_proc	_stat
-#define iposix_fstat_proc	_fstat
-#endif
-
-
-#if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
-	#if defined(_S_IFMT) && (!defined(S_IFMT))
-		#define S_IFMT _S_IFMT
-	#endif
-
-	#if defined(_S_IFDIR) && (!defined(S_IFDIR))
-		#define S_IFDIR _S_IFDIR
-	#endif
-
-	#if defined(_S_IFCHR) && (!defined(S_IFCHR))
-		#define S_IFCHR _S_IFCHR
-	#endif
-
-	#if defined(_S_IFIFO) && (!defined(S_IFIFO))
-		#define S_IFIFO _S_IFIFO
-	#endif
-
-	#if defined(_S_IFREG) && (!defined(S_IFREG))
-		#define S_IFREG _S_IFREG
-	#endif
-
-	#if defined(_S_IREAD) && (!defined(S_IREAD))
-		#define S_IREAD _S_IREAD
-	#endif
-
-	#if defined(_S_IWRITE) && (!defined(S_IWRITE))
-		#define S_IWRITE _S_IWRITE
-	#endif
-
-	#if defined(_S_IEXEC) && (!defined(S_IEXEC))
-		#define S_IEXEC _S_IEXEC
-	#endif
-#endif
-
-#define IX_FMT(m, t)  (((m) & S_IFMT) == (t))
-
-
-// convert stat structure
-void iposix_stat_convert(iposix_stat_t *ostat, const iposix_ostat_t *x)
-{
-	ostat->st_mode = 0;
-
-	#ifdef S_IFDIR
-	if (IX_FMT(x->st_mode, S_IFDIR)) ostat->st_mode |= ISTAT_IFDIR;
-	#endif
-	#ifdef S_IFCHR
-	if (IX_FMT(x->st_mode, S_IFCHR)) ostat->st_mode |= ISTAT_IFCHR;
-	#endif
-	#ifdef S_IFBLK
-	if (IX_FMT(x->st_mode, S_IFBLK)) ostat->st_mode |= ISTAT_IFBLK;
-	#endif
-	#ifdef S_IFREG
-	if (IX_FMT(x->st_mode, S_IFREG)) ostat->st_mode |= ISTAT_IFREG;
-	#endif
-	#ifdef S_IFIFO
-	if (IX_FMT(x->st_mode, S_IFIFO)) ostat->st_mode |= ISTAT_IFIFO;
-	#endif
-	#ifdef S_IFLNK
-	if (IX_FMT(x->st_mode, S_IFLNK)) ostat->st_mode |= ISTAT_IFLNK;
-	#endif
-	#ifdef S_IFSOCK
-	if (IX_FMT(x->st_mode, S_IFSOCK)) ostat->st_mode |= ISTAT_IFSOCK;
-	#endif
-	#ifdef S_IFWHT
-	if (IX_FMT(x->st_mode, S_IFWHT)) ostat->st_mode |= ISTAT_IFWHT;
-	#endif
-
-#ifdef S_IREAD
-	if (x->st_mode & S_IREAD) ostat->st_mode |= ISTAT_IRUSR;
-#endif
-
-#ifdef S_IWRITE
-	if (x->st_mode & S_IWRITE) ostat->st_mode |= ISTAT_IWUSR;
-#endif
-
-#ifdef S_IEXEC
-	if (x->st_mode & S_IEXEC) ostat->st_mode |= ISTAT_IXUSR;
-#endif
-
-#ifdef S_IRUSR
-	if (x->st_mode & S_IRUSR) ostat->st_mode |= ISTAT_IRUSR;
-	if (x->st_mode & S_IWUSR) ostat->st_mode |= ISTAT_IWUSR;
-	if (x->st_mode & S_IXUSR) ostat->st_mode |= ISTAT_IXUSR;
-#endif
-
-#ifdef S_IRGRP
-	if (x->st_mode & S_IRGRP) ostat->st_mode |= ISTAT_IRGRP;
-	if (x->st_mode & S_IWGRP) ostat->st_mode |= ISTAT_IWGRP;
-	if (x->st_mode & S_IXGRP) ostat->st_mode |= ISTAT_IXGRP;
-#endif
-
-#ifdef S_IROTH
-	if (x->st_mode & S_IROTH) ostat->st_mode |= ISTAT_IROTH;
-	if (x->st_mode & S_IWOTH) ostat->st_mode |= ISTAT_IWOTH;
-	if (x->st_mode & S_IXOTH) ostat->st_mode |= ISTAT_IXOTH;
-#endif
-	
-	ostat->st_size = (IUINT64)x->st_size;
-
-	ostat->atime = (IUINT32)x->st_atime;
-	ostat->mtime = (IUINT32)x->st_mtime;
-	ostat->ctime = (IUINT32)x->st_mtime;
-
-	ostat->st_ino = (IUINT64)x->st_ino;
-	ostat->st_dev = (IUINT32)x->st_dev;
-	ostat->st_nlink = (IUINT32)x->st_nlink;
-	ostat->st_uid = (IUINT32)x->st_uid;
-	ostat->st_gid = (IUINT32)x->st_gid;
-	ostat->st_rdev = (IUINT32)x->st_rdev;
-
-#if defined(__unix)
-	ostat->st_blocks = (IUINT32)x->st_blocks;
-	ostat->st_blksize = (IUINT32)x->st_blksize;
-	#if !defined(__CYGWIN__)
-	ostat->st_flags = (IUINT32)x->st_flags;
-	#endif
-#endif
-}
-
-// returns 0 for success, -1 for error
-int iposix_stat_imp(const char *path, iposix_stat_t *ostat)
-{
-	iposix_ostat_t xstat;
-	int retval;
-	retval = iposix_stat_proc(path, &xstat);
-	if (retval != 0) return -1;
-	iposix_stat_convert(ostat, &xstat);
-	return 0;
-}
-
-// returns 0 for success, -1 for error
-int iposix_lstat_imp(const char *path, iposix_stat_t *ostat)
-{
-	iposix_ostat_t xstat;
-	int retval;
-	retval = iposix_lstat_proc(path, &xstat);
-	if (retval != 0) return -1;
-	iposix_stat_convert(ostat, &xstat);
-	return 0;
-}
-
-// returns 0 for success, -1 for error
-int iposix_fstat(int fd, iposix_stat_t *ostat)
-{
-	iposix_ostat_t xstat;
-	int retval;
-	retval = iposix_fstat_proc(fd, &xstat);
-	if (retval != 0) return -1;
-	iposix_stat_convert(ostat, &xstat);
-	return 0;
-}
-
-// normalize stat path
-static void iposix_path_stat(const char *src, char *dst)
-{
-	int size = (int)strlen(src);
-	if (size > IPOSIX_MAXPATH) size = IPOSIX_MAXPATH;
-	memcpy(dst, src, size + 1);
-	if (size > 1) {
-		int trim = 1;
-		if (size == 3) {
-			if (isalpha(dst[0]) && dst[1] == ':' && 
-				(dst[2] == '/' || dst[2] == '\\')) trim = 0;
-		}
-		if (size == 1) {
-			if (dst[0] == '/' || dst[0] == '\\') trim = 0;
-		}
-		if (trim) {
-			if (dst[size - 1] == '/' || dst[size - 1] == '\\') {
-				dst[size - 1] = 0;
-				size--;
-			}
-		}
-	}
-}
-
-
-// returns 0 for success, -1 for error
-int iposix_stat(const char *path, iposix_stat_t *ostat)
-{
-	char buf[IPOSIX_MAXBUFF];
-	iposix_path_stat(path, buf);
-	return iposix_stat_imp(buf, ostat);
-}
-
-// returns 0 for success, -1 for error
-int iposix_lstat(const char *path, iposix_stat_t *ostat)
-{
-	char buf[IPOSIX_MAXBUFF];
-	iposix_path_stat(path, buf);
-	return iposix_lstat_imp(buf, ostat);
-}
-
-// get current directory
-char *iposix_getcwd(char *path, int size)
-{
-#ifdef _WIN32
-	return _getcwd(path, size);
-#else
-	return getcwd(path);
-#endif
-}
-
-// create directory
-int iposix_mkdir(const char *path, int mode)
-{
-#ifdef _WIN32
-	return _mkdir(path);
-#else
-	if (mode < 0) mode = 0755;
-	return mkdir(path, mode);
-#endif
-}
-
-// returns 1 for true 0 for false, -1 for not exist
-int iposix_path_isdir(const char *path)
-{
-	iposix_stat_t s;
-	int hr = iposix_stat(path, &s);
-	if (hr != 0) return -1;
-	return (ISTAT_ISDIR(s.st_mode))? 1 : 0;
-}
-
-// returns 1 for true 0 for false, -1 for not exist
-int iposix_path_isfile(const char *path)
-{
-	iposix_stat_t s;
-	int hr = iposix_stat(path, &s);
-	if (hr != 0) return -1;
-	return (ISTAT_ISDIR(s.st_mode))? 0 : 1;
-}
-
-// returns 1 for true 0 for false, -1 for not exist
-int iposix_path_islink(const char *path)
-{
-	iposix_stat_t s;
-	int hr = iposix_stat(path, &s);
-	if (hr != 0) return -1;
-	return (ISTAT_ISLNK(s.st_mode))? 1 : 0;
-}
-
-// returns 1 for true 0 for false
-int iposix_path_exists(const char *path)
-{
-	iposix_stat_t s;
-	int hr = iposix_stat(path, &s);
-	if (hr != 0) return 0;
-	return 1;
-}
-
-// returns file size, -1 for error
-IINT64 iposix_path_getsize(const char *path)
-{
-	iposix_stat_t s;
-	int hr = iposix_stat(path, &s);
-	if (hr != 0) return -1;
-	return (IINT64)s.st_size;
-}
-
-
-#endif
 
 //---------------------------------------------------------------------
 // CSV Reader/Writer
@@ -1446,7 +1158,7 @@ struct iCsvReader
 {
 	istring_list_t *source;
 	istring_list_t *strings;
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 	FILE *fp;
 #endif
 	ivalue_t string;
@@ -1460,7 +1172,7 @@ struct iCsvWriter
 	ivalue_t output;
 	int mode;
 	istring_list_t *strings;
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 	FILE *fp;
 #endif
 };
@@ -1469,7 +1181,7 @@ struct iCsvWriter
 /* open csv reader from file */
 iCsvReader *icsv_reader_open_file(const char *filename)
 {
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 	iCsvReader *reader;
 	FILE *fp;
 	fp = fopen(filename, "rb");
@@ -1501,7 +1213,7 @@ iCsvReader *icsv_reader_open_memory(const char *text, ilong size)
 	}
 
 	it_init(&reader->string, ITYPE_STR);
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 	reader->fp = NULL;
 #endif
 	reader->source = NULL;
@@ -1529,7 +1241,7 @@ void icsv_reader_close(iCsvReader *reader)
 			istring_list_delete(reader->source);
 			reader->source = NULL;
 		}
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 		if (reader->fp) {
 			fclose(reader->fp);
 			reader->fp = NULL;
@@ -1578,7 +1290,7 @@ int icsv_reader_read(iCsvReader *reader)
 		it_strstripc(str, "\r\n");
 		icsv_reader_parse(reader, str);
 	}
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 	else if (reader->fp) {
 		if (iutils_file_read_line(reader->fp, &reader->string) != 0) {
 			fclose(reader->fp);
@@ -1609,7 +1321,7 @@ int icsv_reader_size(const iCsvReader *reader)
 int icsv_reader_eof(const iCsvReader *reader)
 {
 	void *fp = NULL;
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 	fp = (void*)reader->fp;
 #endif
 	if (fp == NULL && reader->source == NULL) return 1;
@@ -1686,7 +1398,7 @@ iCsvWriter *icsv_writer_open(const char *filename, int append)
 
 	if (filename != NULL) {
 		void *fp = NULL;
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 		writer->fp = fopen(filename, append? "a" : "w");
 		if (writer->fp && append) {
 			fseek(writer->fp, 0, SEEK_END);
@@ -1700,7 +1412,7 @@ iCsvWriter *icsv_writer_open(const char *filename, int append)
 		writer->mode = 1;
 	}	else {
 		writer->mode = 2;
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 		writer->fp = NULL;
 #endif
 	}
@@ -1708,7 +1420,7 @@ iCsvWriter *icsv_writer_open(const char *filename, int append)
 	writer->strings = istring_list_new();
 
 	if (writer->strings == NULL) {
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 		if (writer->fp) {
 			fclose(writer->fp);
 		}
@@ -1731,7 +1443,7 @@ void icsv_writer_close(iCsvWriter *writer)
 			istring_list_delete(writer->strings);
 			writer->strings = NULL;
 		}
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 		if (writer->fp) {
 			fclose(writer->fp);
 			writer->fp = NULL;
@@ -1750,7 +1462,7 @@ int icsv_writer_write(iCsvWriter *writer)
 	istring_list_csv_encode(writer->strings, &writer->string);
 	it_strcatc(&writer->string, "\n", 1);
 	if (writer->mode == 1) {
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 		if (writer->fp) {
 			fwrite(it_str(&writer->string), 1, 
 				it_size(&writer->string), writer->fp);

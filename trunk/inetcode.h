@@ -17,22 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-//#define IDISABLE_FILE_SYSTEM_ACCESS
-//---------------------------------------------------------------------
-// System Compatible
-//---------------------------------------------------------------------
-#ifndef IDISABLE_FILE_SYSTEM_ACCESS
-#define IENABLE_FILE_SYSTEM_ACCESS			// 是否允许文件系统访问
-#endif
-
-#ifndef IDISABLE_SHARED_LIBRARY
-#define IENABLE_SHARED_LIBRARY				// 是否允许动态库
-#endif
-
-#ifndef IUTILS_STACK_BUFFER_SIZE
-#define IUTILS_STACK_BUFFER_SIZE	1024	// 默认栈缓存
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -65,15 +49,12 @@ int inet_updateaddr(int resolvname);
 /* create socketpair */
 int inet_socketpair(int fds[2]);
 
-/* keepalive option */
-int inet_set_keepalive(int sock, int keepcnt, int keepidle, int keepintvl);
-
 
 //---------------------------------------------------------------------
 // System Utilities
 //---------------------------------------------------------------------
 
-#ifdef IENABLE_SHARED_LIBRARY
+#ifndef IDISABLE_SHARED_LIBRARY
 
 // LoadLibraryA
 void *iutils_shared_open(const char *dllname);
@@ -87,7 +68,7 @@ void iutils_shared_close(void *shared);
 #endif
 
 
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
 
 // load file content
 void *iutils_file_load_content(const char *filename, ilong *size);
@@ -222,104 +203,6 @@ long itms_next(struct ITMHOST *host, long hid);
 
 long itms_read(struct ITMHOST *host, int *msg, long *wparam, long *lparam,
 	void *data, long size);
-
-
-//---------------------------------------------------------------------
-// Posix Stat
-//---------------------------------------------------------------------
-#ifdef IENABLE_FILE_SYSTEM_ACCESS
-
-#define ISTAT_IFMT		0170000		// file type mask
-#define ISTAT_IFIFO		0010000		// named pipe (fifo) 
-#define ISTAT_IFCHR		0020000		// charactor special
-#define ISTAT_IFDIR		0040000		// directory
-#define ISTAT_IFBLK		0060000		// block special
-#define ISTAT_IFREG		0100000		// regular
-#define ISTAT_IFLNK		0120000		// symbolic link
-#define ISTAT_IFSOCK	0140000		// socket
-#define ISTAT_IFWHT		0160000		// whiteout
-#define ISTAT_ISUID		0004000		// set user id on execution
-#define ISTAT_ISGID		0002000		// set group id on execution
-#define ISTAT_ISVXT		0001000		// swapped text even after use
-#define ISTAT_IRWXU		0000700		// owner RWX mask
-#define ISTAT_IRUSR		0000400		// owner read permission
-#define ISTAT_IWUSR		0000200		// owner writer permission
-#define ISTAT_IXUSR		0000100		// owner execution permission
-#define ISTAT_IRWXG		0000070		// group RWX mask
-#define ISTAT_IRGRP		0000040		// group read permission
-#define ISTAT_IWGRP		0000020		// group write permission
-#define ISTAT_IXGRP		0000010		// group execution permission
-#define ISTAT_IRWXO		0000007		// other RWX mask
-#define ISTAT_IROTH		0000004		// other read permission
-#define ISTAT_IWOTH		0000002		// other writer permission
-#define ISTAT_IXOTH		0000001		// other execution permission
-
-#define ISTAT_ISFMT(m, t)	(((m) & ISTAT_IFMT) == (t))
-#define ISTAT_ISDIR(m)		ISTAT_ISFMT(m, ISTAT_IFDIR)
-#define ISTAT_ISCHR(m)		ISTAT_ISFMT(m, ISTAT_IFCHR)
-#define ISTAT_ISBLK(m)		ISTAT_ISFMT(m, ISTAT_IFBLK)
-#define ISTAT_ISREG(m)		ISTAT_ISFMT(m, ISTAT_IFREG)
-#define ISTAT_ISFIFO(m)		ISTAT_ISFMT(m, ISTAT_IFIFO)
-#define ISTAT_ISLNK(m)		ISTAT_ISFMT(m, ISTAT_IFLNK)
-#define ISTAT_ISSOCK(m)		ISTAT_ISFMT(m, ISTAT_IFSOCK)
-#define ISTAT_ISWHT(m)		ISTAT_ISFMT(m, ISTAT_IFWHT)
-
-struct IPOSIX_STAT
-{
-	IUINT32 st_mode;
-	IUINT64 st_ino;
-	IUINT32 st_dev;
-	IUINT32 st_nlink;
-	IUINT32 st_uid;
-	IUINT32 st_gid;
-	IUINT64 st_size;
-	IUINT32 atime;
-	IUINT32 mtime;
-	IUINT32 ctime;
-	IUINT32 st_blocks;
-	IUINT32 st_blksize;
-	IUINT32 st_rdev;
-	IUINT32 st_flags;
-};
-
-typedef struct IPOSIX_STAT iposix_stat_t;
-
-#define IPOSIX_MAXPATH		1024
-#define IPOSIX_MAXBUFF		((IPOSIX_MAXPATH) + 8)
-
-
-// returns 0 for success, -1 for error
-int iposix_stat(const char *path, iposix_stat_t *ostat);
-
-// returns 0 for success, -1 for error
-int iposix_lstat(const char *path, iposix_stat_t *ostat);
-
-// returns 0 for success, -1 for error
-int iposix_fstat(int fd, iposix_stat_t *ostat);
-
-// get current directory
-char *iposix_getcwd(char *path, int size);
-
-// create directory
-int iposix_mkdir(const char *path, int mode);
-
-
-// returns 1 for true 0 for false, -1 for not exist
-int iposix_path_isdir(const char *path);
-
-// returns 1 for true 0 for false, -1 for not exist
-int iposix_path_isfile(const char *path);
-
-// returns 1 for true 0 for false, -1 for not exist
-int iposix_path_islink(const char *path);
-
-// returns 1 for true 0 for false
-int iposix_path_exists(const char *path);
-
-// returns file size, -1 for error
-IINT64 iposix_path_getsize(const char *path);
-
-#endif
 
 
 //---------------------------------------------------------------------
