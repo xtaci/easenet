@@ -294,7 +294,7 @@ int icsv_writer_push_ulong(iCsvWriter *writer, unsigned long x, int radix);
 int icsv_writer_push_int(iCsvWriter *writer, int x, int radix);
 int icsv_writer_push_uint(iCsvWriter *writer, unsigned int x, int radix);
 int icsv_writer_push_int64(iCsvWriter *writer, IINT64 x, int radix);
-int icsv_writer_push_uint64(iCsvWriter *writer, long x, int radix);
+int icsv_writer_push_uint64(iCsvWriter *writer, IUINT64 x, int radix);
 int icsv_writer_push_float(iCsvWriter *writer, float x);
 int icsv_writer_push_double(iCsvWriter *writer, double x);
 
