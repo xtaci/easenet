@@ -1642,7 +1642,7 @@ int icsv_writer_push_int64(iCsvWriter *writer, IINT64 x, int radix)
 	return icsv_writer_push_cstr(writer, digit, -1);
 }
 
-int icsv_writer_push_uint64(iCsvWriter *writer, long x, int radix)
+int icsv_writer_push_uint64(iCsvWriter *writer, IUINT64 x, int radix)
 {
 	char digit[32];
 	if (radix == 10 || radix == 0) {
