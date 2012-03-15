@@ -1062,6 +1062,7 @@ static void imemcache_list_free(imemcache_t *cache, void *ptr)
 	if (cache != NULL) {
 		invalidptr = ((void*)cache != slab->extra);
 		assert( !invalidptr );
+		if (invalidptr) return;
 	}
 
 	cache = (imemcache_t*)slab->extra;
@@ -1178,12 +1179,16 @@ static void *imemcache_free(imemcache_t *cache, void *ptr)
 	head[0] = (void*)(linear & ~(IMROUNDSIZE - 1));
 
 	assert( !invalidptr );
+	if (invalidptr) return NULL;
 
 	lptr -= sizeof(imemslab_t*);
 	slab = *(imemslab_t**)lptr;
 
 	if (cache) {
 		assert(cache == (imemcache_t*)slab->extra);
+		if (cache != slab->extra) {
+			return NULL;
+		}
 	}
 
 	cache = (imemcache_t*)slab->extra;
@@ -1757,6 +1762,7 @@ void ikmem_free(void *ptr)
 		internal_free(0, lptr);
 	}	else {
 		cache = (imemcache_t*)imemcache_free(NULL, ptr);
+		if (cache == NULL) return;
 		if (cache->extra) {
 			IKMEM_STAT(cache, 0) -= 1;
 			IKMEM_STAT(cache, 2) += 1;
@@ -2007,8 +2013,11 @@ static void ikmem_std_free(void *ptr)
 {
 	char *lptr = ((char*)ptr) - sizeof(void*);
 	size_t size = *((size_t*)lptr);
-	if ((size & 1) != 1) {
-		assert((size & 1) == 1);
+	int invalidptr;
+	invalidptr = (size & 1) != 1;
+	if (invalidptr) {
+		assert(!invalidptr);
+		return;
 	}
 	*((size_t*)ptr) = 0;
 	internal_free(0, lptr);
@@ -2020,6 +2029,7 @@ static size_t ikmem_std_ptr_size(const void *ptr)
 	size_t size = *((const size_t*)lptr);
 	if ((size & 1) != 1) {
 		assert((size & 1) == 1);
+		return 0;
 	}
 	return size & (~((size_t)3));
 }
@@ -2165,4 +2175,6 @@ void imnode_delete(imemnode_t *mnode)
 	imnode_destroy(mnode);
 	ikmem_free(mnode);
 }
+
+
 
