@@ -421,6 +421,21 @@ typedef struct IMEMCACHE imemcache_t;
 
 
 /*====================================================================*/
+/* IKMEMHOOK                                                          */
+/*====================================================================*/
+struct IKMEMHOOK
+{
+	void* (*kmem_malloc_fn)(size_t size);
+	void (*kmem_free_fn)(void *ptr);
+	void* (*kmem_realloc_fn)(void *ptr, size_t size);
+	size_t (*kmem_ptr_size_fn)(const void *ptr);
+	void (*kmem_shrink_fn)(void);
+};
+
+typedef struct IKMEMHOOK ikmemhook_t;
+
+
+/*====================================================================*/
 /* IKMEM INTERFACE                                                    */
 /*====================================================================*/
 void ikmem_init(int page_shift, int pg_malloc, size_t *sz);
@@ -436,13 +451,16 @@ void ikmem_delete(imemcache_t *cache);
 void *ikmem_cache_alloc(imemcache_t *cache);
 void ikmem_cache_free(imemcache_t *cache, void *ptr);
 
-size_t ikmem_ptr_size(void *ptr);
+size_t ikmem_ptr_size(const void *ptr);
 void ikmem_option(size_t watermark);
 imemcache_t *ikmem_get(const char *name);
 
 ilong ikmem_page_info(ilong *pg_inuse, ilong *pg_new, ilong *pg_del);
 ilong ikmem_cache_info(int id, int *inuse, int *cnew, int *cdel, int *cfree);
 ilong ikmem_waste_info(ilong *kmem_inuse, ilong *total_mem);
+
+int ikmem_hook_install(const ikmemhook_t *hook);
+const ikmemhook_t *ikmem_hook_get(int id);
 
 
 /*====================================================================*/
@@ -458,7 +476,6 @@ void iv_delete(ivector_t *vec);
 
 imemnode_t *imnode_create(ilong nodesize, int grow_limit);
 void imnode_delete(imemnode_t *);
-
 
 
 #ifdef __cplusplus

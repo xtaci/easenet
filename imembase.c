@@ -1350,6 +1350,8 @@ static size_t ikmem_water_mark = 0;
 static size_t ikmem_range_high = 0;
 static size_t ikmem_range_low = 0;
 
+static const ikmemhook_t *ikmem_hook = NULL;
+
 
 static int ikmem_append(size_t size, struct IMEMGFP *gfp)
 {
@@ -1675,6 +1677,10 @@ void* ikmem_malloc(size_t size)
 	iqueue_head *p;
 	char *lptr;
 
+	if (ikmem_hook) {
+		return ikmem_hook->kmem_malloc_fn(size);
+	}
+
 	if (ikmem_inited == 0) ikmem_init(0, 0, NULL);
 
 	assert(size > 0 && size <= (((size_t)1) << 30));
@@ -1737,6 +1743,11 @@ void ikmem_free(void *ptr)
 	iqueue_head *p;
 	char *lptr = (char*)ptr;
 
+	if (ikmem_hook) {
+		ikmem_hook->kmem_free_fn(ptr);
+		return;
+	}
+
 	if (*(void**)(lptr - sizeof(void*)) == NULL) {
 		lptr -= IKMEM_LARGE_HEAD;
 		p = (iqueue_head*)lptr;
@@ -1754,23 +1765,27 @@ void ikmem_free(void *ptr)
 	}
 }
 
-size_t ikmem_ptr_size(void *ptr)
+size_t ikmem_ptr_size(const void *ptr)
 {
 	size_t size, linear;
 	imemcache_t *cache;
 	imemslab_t *slab;
-	char *lptr = (char*)ptr;
+	const char *lptr = (const char*)ptr;
 	int invalidptr;
+
+	if (ikmem_hook) {
+		return ikmem_hook->kmem_ptr_size_fn(ptr);
+	}
 
 	if ((size_t)lptr < ikmem_range_low ||
 		(size_t)lptr > ikmem_range_high) 
 		return 0;
 
-	if (*(void**)(lptr - sizeof(void*)) == NULL) {
-		size = *(size_t*)(lptr - sizeof(void*) - sizeof(ilong));
+	if (*(const void**)(lptr - sizeof(void*)) == NULL) {
+		size = *(const size_t*)(lptr - sizeof(void*) - sizeof(ilong));
 	}	else {
 
-		linear = (size_t)(*(void**)(lptr - sizeof(void*)));
+		linear = (size_t)(*(const void**)(lptr - sizeof(void*)));
 		invalidptr = ((linear & IMCACHE_CHECK_MAGIC) != IMCACHE_CHECK_MAGIC);
 
 		if ( invalidptr ) return 0;
@@ -1778,8 +1793,8 @@ size_t ikmem_ptr_size(void *ptr)
 		slab = (imemslab_t*)(linear & ~(IMROUNDSIZE - 1));
 		lptr -= sizeof(void*);
 
-		if (lptr >= (char*)slab->membase + slab->memsize ||
-			lptr < (char*)slab->membase) 
+		if (lptr >= (const char*)slab->membase + slab->memsize ||
+			lptr < (const char*)slab->membase) 
 			return 0;
 
 		cache = (imemcache_t*)slab->extra;
@@ -1793,6 +1808,10 @@ void* ikmem_realloc(void *ptr, size_t size)
 {
 	size_t oldsize;
 	void *newptr;
+
+	if (ikmem_hook) {
+		return ikmem_hook->kmem_realloc_fn(ptr, size);
+	}
 
 	if (ptr == NULL) return ikmem_malloc(size);
 	oldsize = ikmem_ptr_size(ptr);
@@ -1810,7 +1829,11 @@ void* ikmem_realloc(void *ptr, size_t size)
 	}
 
 	newptr = ikmem_malloc(size);
-	assert(newptr);
+
+	if (newptr == NULL) {
+		ikmem_free(ptr);
+		return NULL;
+	}
 
 	memcpy(newptr, ptr, oldsize < size? oldsize : size);
 	ikmem_free(ptr);
@@ -1822,6 +1845,11 @@ void ikmem_shrink(void)
 {
 	imemcache_t *cache;
 	int index;
+	if (ikmem_hook) {
+		if (ikmem_hook->kmem_shrink_fn)
+			ikmem_hook->kmem_shrink_fn();
+		return;
+	}
 	for (index = ikmem_count - 1; index >= 0; index--) {
 		cache = ikmem_lookup[index];
 		imemcache_shrink(cache);
@@ -1959,6 +1987,122 @@ void ikmem_cache_free(imemcache_t *cache, void *ptr)
 	imemcache_free(cache, ptr);
 }
 
+
+/*====================================================================*/
+/* IKMEM HOOKING                                                      */
+/*====================================================================*/
+static void* ikmem_std_malloc(size_t size)
+{
+	size_t round = (size + 3) & ~((size_t)3);
+	char *lptr;
+	assert(size > 0);
+	lptr = (char*)internal_malloc(0, round + sizeof(void*));
+	if (lptr == NULL) return NULL;
+	*((size_t*)lptr) = (round | 1);
+	lptr += sizeof(void*);
+	return lptr;
+}
+
+static void ikmem_std_free(void *ptr)
+{
+	char *lptr = ((char*)ptr) - sizeof(void*);
+	size_t size = *((size_t*)lptr);
+	if ((size & 1) != 1) {
+		assert((size & 1) == 1);
+	}
+	*((size_t*)ptr) = 0;
+	internal_free(0, lptr);
+}
+
+static size_t ikmem_std_ptr_size(const void *ptr)
+{
+	const char *lptr = ((const char*)ptr) - sizeof(void*);
+	size_t size = *((const size_t*)lptr);
+	if ((size & 1) != 1) {
+		assert((size & 1) == 1);
+	}
+	return size & (~((size_t)3));
+}
+
+static void* ikmem_std_realloc(void *ptr, size_t size)
+{
+	size_t oldsize;
+	void *newptr;
+
+	if (ptr == NULL) return ikmem_std_malloc(size);
+	oldsize = ikmem_std_ptr_size(ptr);
+
+	if (size == 0) {
+		ikmem_std_free(ptr);
+		return NULL;
+	}
+
+	assert(oldsize > 0);
+	if (oldsize >= size) {
+		if (oldsize * 3 < size * 4) 
+			return ptr;
+	}
+
+	newptr = ikmem_std_malloc(size);
+	if (newptr == NULL) {
+		ikmem_std_free(ptr);
+		return NULL;
+	}
+
+	memcpy(newptr, ptr, oldsize < size? oldsize : size);
+	ikmem_std_free(ptr);
+
+	return newptr;
+}
+
+static const ikmemhook_t ikmem_std_hook = 
+{
+	ikmem_std_malloc,
+	ikmem_std_free,
+	ikmem_std_realloc,
+	ikmem_std_ptr_size,
+	NULL,
+};
+
+static const ikmemhook_t ikmem_origin =
+{
+	ikmem_malloc,
+	ikmem_free,
+	ikmem_realloc,
+	ikmem_ptr_size,
+	ikmem_shrink,
+};
+
+int ikmem_hook_install(const ikmemhook_t *hook)
+{
+	if (ikmem_inited) return -1;
+	if (hook == NULL) {
+		ikmem_hook = NULL;
+		return 0;
+	}
+	if (hook == (const ikmemhook_t*)(~((size_t)0))) {
+		ikmem_hook = &ikmem_std_hook;
+		return 0;
+	}
+	if (hook->kmem_malloc_fn == ikmem_malloc)
+		return -1;
+	if (hook->kmem_free_fn == ikmem_free)
+		return -1;
+	if (hook->kmem_realloc_fn == ikmem_realloc)
+		return -1;
+	if (hook->kmem_ptr_size_fn == ikmem_ptr_size)
+		return -1;
+	if (hook->kmem_shrink_fn == ikmem_shrink)
+		return -1;
+	ikmem_hook = hook;
+	return 0;
+}
+
+const ikmemhook_t *ikmem_hook_get(int id)
+{
+	if (id == 0) return &ikmem_origin;
+	return &ikmem_std_hook;
+}
 
 
 /*====================================================================*/
