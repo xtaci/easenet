@@ -259,14 +259,23 @@ static inline void it_destroy(ivalue_t *v)
 static inline void it_sresize(ivalue_t *v, iulong s)
 {
 	iulong newsize = s;
+	iulong need = newsize + 1;
+	iulong block = 0;
 	if (it_ptr(v) == &(v->param)) { 
-		if (newsize + 1 > sizeof(v->param)) {	
-			it_ptr(v) = ikmem_malloc(newsize + 1); 
+		if (need > sizeof(v->param)) {
+			for (block = 1; block < need; block <<= 1);
+			it_ptr(v) = ikmem_malloc(block); 
+			assert(it_ptr(v));
 			memcpy(it_ptr(v), &(v->param), it_size(v));
 		}	
 	}	else { 
-		if (newsize + 1 > sizeof(v->param)) { 
-			it_ptr(v) = ikmem_realloc(it_str(v), newsize + 1); 
+		if (need > sizeof(v->param)) { 
+			iulong oblock = ikmem_ptr_size(it_str(v));
+			if (need > oblock || need <= (oblock >> 1)) {
+				for (block = 1; block < need; block <<= 1);
+				it_ptr(v) = ikmem_realloc(it_str(v), block); 
+				assert(it_ptr(v));
+			}
 		}	else { 
 			memcpy(&(v->param), it_ptr(v), newsize);
 			ikmem_free(it_str(v)); 
