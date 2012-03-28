@@ -400,6 +400,9 @@ unsigned long iclock(void);
 /* get clock in millisecond 64 */
 IINT64 iclock64(void);
 
+/* real time usec (1/1000000 sec) clock */
+IINT64 iclockrt(void);
+
 /* global millisecond clock value, updated by itimeofday */
 volatile extern IINT64 itimeclock;
 
