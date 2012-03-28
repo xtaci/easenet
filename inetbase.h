@@ -234,6 +234,11 @@ typedef SOCKET Socket;
 	#define ICLOCK_TYPE_REALTIME
 #endif
 
+#if defined(ANDROID) && (!defined(__ANDROID__))
+	#define __ANDROID__
+#endif
+
+
 
 /*===================================================================*/
 /* 32BIT INTEGER DEFINITION                                          */
@@ -760,6 +765,94 @@ void iposix_rwlock_w_unlock(iRwLockPosix *rwlock);
 void iposix_rwlock_r_lock(iRwLockPosix *rwlock);
 
 void iposix_rwlock_r_unlock(iRwLockPosix *rwlock);
+
+
+/*===================================================================*/
+/* Threading Cross-Platform Interface                                */
+/*===================================================================*/
+struct iPosixThread;
+typedef struct iPosixThread iPosixThread;
+
+/* Thread Entry Point, it will be called repeatly after started until
+   it returns zero, or iposix_thread_set_notalive is called. */
+typedef int (*iPosixThreadFun)(void *obj);
+
+/* create a new thread object */
+iPosixThread *iposix_thread_new(iPosixThreadFun target, void *obj, 
+	const char *name);
+
+/* delete a thread object: (IMPORTANT!!) thread must stop before this */
+void iposix_thread_delete(iPosixThread *thread);
+
+
+/* start thread, each thread object can only have one running thread at
+   the same time. if it has started already, returns nonezero for error */
+int iposix_thread_start(iPosixThread *thread);
+
+/* join thread, wait the thread finish */
+int iposix_thread_join(iPosixThread *thread, unsigned long millisec);
+
+/* kill thread: very dangerous */
+int iposix_thread_cancel(iPosixThread *thread);
+
+/* stop repeatly calling iPosixThreadFun, if thread is NULL, use current */
+void iposix_thread_set_notalive(iPosixThread *thread);
+
+/* returns 1 for running, 0 for not running */
+int iposix_thread_is_running(iPosixThread *thread);
+
+
+#define IPOSIX_THREAD_PRIO_LOW			0
+#define IPOSIX_THREAD_PRIO_NORMAL		1
+#define IPOSIX_THREAD_PRIO_HIGH			2
+#define IPOSIX_THREAD_PRIO_HIGHEST		3
+#define IPOSIX_THREAD_PRIO_REALTIME		4
+
+/* set thread priority, the thread must not be started */
+int iposix_thread_set_priority(iPosixThread *thread, int priority);
+
+/* set stack size, the thread must not be started */
+int iposix_thread_set_stack(iPosixThread *thread, int stacksize);
+
+/* set cpu mask affinity, the thread must be started (supports win/linux)*/
+int iposix_thread_affinity(iPosixThread *thread, unsigned int cpumask);
+
+
+/* set signal: if thread is NULL, current thread object is used */
+void iposix_thread_set_signal(iPosixThread *thread, int sig);
+
+/* get signal: if thread is NULL, current thread object is used */
+int iposix_thread_get_signal(iPosixThread *thread);
+
+/* get name: if thread is NULL, current thread object is used */
+const char *iposix_thread_get_name(iPosixThread *thread);
+
+
+/*===================================================================*/
+/* Timer Cross-Platform Interface                                    */
+/*===================================================================*/
+struct iPosixTimer;
+typedef struct iPosixTimer iPosixTimer;
+
+
+/* create a new timer */
+iPosixTimer *iposix_timer_new(void);
+
+/* delete a timer */
+void iposix_timer_delete(iPosixTimer *timer);
+
+/* start timer, delay is millisec, returns zero for success */
+int iposix_timer_start(iPosixTimer *timer, unsigned long delay, 
+	int periodic);
+
+/* stop timer */
+void iposix_timer_stop(iPosixTimer *timer);
+
+/* wait, returns 1 for timer, otherwise for timeout */
+int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec);
+
+/* wait infinite */
+int iposix_timer_wait(iPosixTimer *timer);
 
 
 
