@@ -136,7 +136,7 @@ class CriticalSection
 public:
 	CriticalSection() { IMUTEX_INIT(&_mutex); }
 	virtual ~CriticalSection() { IMUTEX_DESTROY(&_mutex); }
-	void enter() { IMUTEX_DESTROY(&_mutex); }
+	void enter() { IMUTEX_LOCK(&_mutex); }
 	void leave() { IMUTEX_UNLOCK(&_mutex); }
 
 	IMUTEX_TYPE& mutex() { return _mutex; }
