@@ -4036,7 +4036,7 @@ void iposix_thread_set_notalive(iPosixThread *thread)
 }
 
 /* returns 1 for running, 0 for not running */
-int iposix_thread_is_running(iPosixThread *thread)
+int iposix_thread_is_running(const iPosixThread *thread)
 {
 	if (thread == NULL) thread = iposix_thread_current();
 	if (thread == NULL) return 0;
@@ -4132,7 +4132,7 @@ int iposix_thread_get_signal(iPosixThread *thread)
 
 
 /* get name: if thread is NULL, current thread object is used */
-const char *iposix_thread_get_name(iPosixThread *thread)
+const char *iposix_thread_get_name(const iPosixThread *thread)
 {
 	if (thread == NULL) thread = iposix_thread_current();
 	if (thread == NULL) return NULL;
