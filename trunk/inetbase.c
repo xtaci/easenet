@@ -3383,3 +3383,941 @@ void iposix_rwlock_r_unlock(iRwLockPosix *rwlock)
 }
 
 
+
+/*===================================================================*/
+/* Threading Cross-Platform Interface                                */
+/*===================================================================*/
+#define IPOSIX_THREAD_STATE_STOP		0
+#define IPOSIX_THREAD_STATE_STARTING	1
+#define IPOSIX_THREAD_STATE_STARTED		2
+
+#ifndef IPOSIX_THREAD_NAME_SIZE
+#define IPOSIX_THREAD_NAME_SIZE			64
+#endif
+
+#ifndef IPOSIX_THREAD_STACK_SIZE
+#define IPOSIX_THREAD_STACK_SIZE		(1024 * 1024)
+#endif
+
+/* iPosixThread definition */
+struct iPosixThread
+{
+	int state;
+	int priority;
+	IUINT32 stacksize;
+	IMUTEX_TYPE lock;
+	IMUTEX_TYPE critical;
+	iPosixThreadFun target;
+	iEventPosix *event;
+	iConditionVariable *cond;
+	void *obj;
+	int sig;
+	int sched;
+	int alive;
+#ifdef _WIN32
+	HANDLE th;
+	unsigned int tid;
+#else
+	pthread_attr_t attr;
+	pthread_t ptid;
+	int attr_inited;
+#endif
+	IUINT32 mask;
+	char name[IPOSIX_THREAD_NAME_SIZE];
+};
+
+
+static int iposix_thread_inited = 0;
+
+#ifdef _WIN32
+static DWORD iposix_thread_local = 0;
+#else
+static pthread_key_t iposix_thread_local = (pthread_key_t)0;
+#endif
+
+
+/* initialize thread state and local storage */
+static int iposix_thread_init(void)
+{
+	static int retval = -1;
+	static int state = 0;
+	if (iposix_thread_inited) return retval;
+	if (state == 0) {
+		state = 1;
+	#ifdef _WIN32
+		iposix_thread_local = TlsAlloc();
+		if (iposix_thread_local != 0xFFFFFFFF) {
+			TlsSetValue(iposix_thread_local, NULL);
+			retval = 0;
+		}
+	#else
+		if (pthread_key_create(&iposix_thread_local, NULL) == 0) {
+		#ifndef __ANDROID__
+			int hr = 0;
+			hr |= pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+			hr |= pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+			if (hr == 0) {
+				retval = 0;
+			}
+		#else
+			retval = 0;
+		#endif
+			pthread_setspecific(iposix_thread_local, NULL);
+		}
+	#endif
+		state = 100;
+		iposix_thread_inited = 1;
+	}	else {
+		while (state != 100) isleep(10);
+	}
+	return retval;
+}
+
+
+/* Thread Entry Point, it will be called repeatly after started until
+   it returns zero, or iposix_thread_set_notalive is called. */
+iPosixThread *iposix_thread_new(iPosixThreadFun target, void *obj, 
+	const char *name)
+{
+	iPosixThread *thread;
+
+#ifndef _WIN32
+	#ifndef __ANDROID__
+	int hr = 0;
+	hr |= pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	hr |= pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	if (hr != 0) {
+		return NULL;
+	}
+	#endif	
+#endif
+
+	if (iposix_thread_inited == 0) {
+		if (iposix_thread_init() != 0) return NULL;
+	}
+
+	if (target == NULL) return NULL;
+
+	thread = (iPosixThread*)ikmalloc(sizeof(iPosixThread));
+	if (thread == NULL) return NULL;
+
+	thread->state = IPOSIX_THREAD_STATE_STOP;
+	thread->priority = IPOSIX_THREAD_PRIO_NORMAL;
+	thread->stacksize = IPOSIX_THREAD_STACK_SIZE;
+	thread->target = target;
+	thread->obj = obj;
+
+	IMUTEX_INIT(&thread->lock);
+	IMUTEX_INIT(&thread->critical);
+
+#ifndef _WIN32
+	thread->attr_inited = 0;
+#endif
+
+	thread->event = iposix_event_new();
+	thread->cond = iposix_cond_new();
+
+	if (thread->event == NULL || thread->cond == NULL) {
+		if (thread->event) iposix_event_delete(thread->event);
+		if (thread->cond) iposix_cond_delete(thread->cond);
+		thread->event = NULL;
+		thread->cond = NULL;
+		IMUTEX_DESTROY(&thread->critical);
+		IMUTEX_DESTROY(&thread->lock);
+		ikfree(thread);
+		return NULL;
+	}
+
+	iposix_event_reset(thread->event);
+
+	if (name == NULL) name = "NonameThread";
+
+	if (name) {
+		int size = strlen(name) + 1;
+		if (size >= IPOSIX_THREAD_NAME_SIZE) 
+			size = IPOSIX_THREAD_NAME_SIZE - 1;
+		if (size > 0) {
+			memcpy(thread->name, name, size - 1);
+		}
+		thread->name[size] = 0;
+	}	else {
+		memcpy(thread->name, "NONAME", 6);
+		thread->name[6] = 0;
+	}
+
+	thread->name[IPOSIX_THREAD_NAME_SIZE - 1] = 0;
+	
+	thread->sched = 0;
+	thread->sig = 0;
+	thread->alive = 1;
+	thread->mask = 0x11223344;
+	return thread;
+}
+
+
+/* delete a thread object: (IMPORTANT!!) thread must stop before this */
+void iposix_thread_delete(iPosixThread *thread)
+{
+	if (thread == NULL) return;
+	if (thread->target == NULL) return;
+
+	assert(!thread->alive);
+	assert(thread->state == IPOSIX_THREAD_STATE_STOP);
+
+	thread->alive = 0;
+	iposix_thread_join(thread, IEVENT_INFINITE);
+
+	IMUTEX_LOCK(&thread->lock);
+
+	if (thread->target) {
+		thread->target = NULL;
+	#ifndef IPOSIX_THREAD_KILL_ON_DELETE
+		if (thread->state != IPOSIX_THREAD_STATE_STOP) {
+			int notstop = 1;
+			IMUTEX_UNLOCK(&thread->lock);
+			assert(notstop == 0);
+			abort();
+			return;
+		}
+	#endif
+		if (thread->state != IPOSIX_THREAD_STATE_STOP) {
+		#ifdef _WIN32
+			if (thread->th) {
+				TerminateThread(thread->th, 0);
+				CloseHandle(thread->th);
+			}
+			thread->th = NULL;
+			thread->tid = 0;
+		#else
+			if (thread->ptid) pthread_cancel(thread->ptid);
+			thread->ptid = 0;
+			if (thread->attr_inited) {
+				pthread_attr_destroy(&thread->attr);
+				thread->attr_inited = 0;
+			}
+		#endif
+		}
+		thread->state = IPOSIX_THREAD_STATE_STOP;
+		if (thread->event) iposix_event_delete(thread->event);
+		thread->event = NULL;
+		if (thread->cond) iposix_cond_delete(thread->cond);
+		thread->cond = NULL;
+	}
+	
+	IMUTEX_UNLOCK(&thread->lock);
+
+	IMUTEX_DESTROY(&thread->critical);
+	IMUTEX_DESTROY(&thread->lock);
+
+	memset(thread, 0, sizeof(iPosixThread));
+	ikfree(thread);
+}
+
+
+/* thread bootstrap */
+static void iposix_thread_bootstrap(iPosixThread *thread);
+
+#ifdef _WIN32
+static unsigned int WINAPI iposix_thread_bootstrap_win32(LPVOID lpParameter)
+{
+	iposix_thread_bootstrap((iPosixThread*)lpParameter);
+	return 0;
+}
+
+#else
+static void* iposix_thread_bootstrap_unix(void* lpParameter)
+{
+	iposix_thread_bootstrap((iPosixThread*)lpParameter);
+	return NULL;
+}
+
+#endif
+
+
+/* start thread, each thread object can only have one running thread at
+   the same time. if it has started already, returns nonezero for error */
+int iposix_thread_start(iPosixThread *thread)
+{
+#ifndef _WIN32
+	struct sched_param param;
+	int policy = (thread->sched == 0)? SCHED_FIFO : SCHED_RR;
+	int pmin, pmax;
+	int result = 0;
+#endif
+
+	if (thread == NULL) 
+		return -1;
+
+	if (thread->target == NULL) 
+		return -2;
+
+	IMUTEX_LOCK(&thread->lock);
+
+	if (thread->state != IPOSIX_THREAD_STATE_STOP) {
+		IMUTEX_UNLOCK(&thread->lock);
+		return -3;
+	}
+
+	if (thread->target == NULL) {
+		IMUTEX_UNLOCK(&thread->lock);
+		return -4;
+	}
+
+	iposix_event_reset(thread->event);
+
+	thread->state = IPOSIX_THREAD_STATE_STARTING;
+	thread->alive = 1;
+
+#ifdef _WIN32
+
+	thread->th = (HANDLE)_beginthreadex(NULL, thread->stacksize, 
+		iposix_thread_bootstrap_win32, (void*)thread, 0, &thread->tid);
+
+	if (thread->th == NULL) {
+		thread->tid = 0;
+		thread->state = IPOSIX_THREAD_STATE_STOP;
+		IMUTEX_UNLOCK(&thread->lock);
+		return -5;
+	}
+
+	iposix_event_wait(thread->event, 10000);
+
+	if (thread->state != IPOSIX_THREAD_STATE_STARTED) {
+		if (thread->th) {
+			TerminateThread(thread->th, 0);
+			CloseHandle(thread->th);
+		}
+		thread->th = NULL;
+		thread->tid = 0;
+		iposix_event_reset(thread->event);
+		thread->state = IPOSIX_THREAD_STATE_STOP;
+		IMUTEX_UNLOCK(&thread->lock);
+		return -6;
+	}
+
+	switch (thread->priority) {
+	case IPOSIX_THREAD_PRIO_LOW:
+		SetThreadPriority(thread->th, THREAD_PRIORITY_BELOW_NORMAL);
+		break;
+	case IPOSIX_THREAD_PRIO_NORMAL:
+		SetThreadPriority(thread->th, THREAD_PRIORITY_NORMAL);
+		break;
+	case IPOSIX_THREAD_PRIO_HIGH:
+		SetThreadPriority(thread->th, THREAD_PRIORITY_ABOVE_NORMAL);
+		break;
+	case IPOSIX_THREAD_PRIO_HIGHEST:
+		SetThreadPriority(thread->th, THREAD_PRIORITY_HIGHEST);
+		break;
+	case IPOSIX_THREAD_PRIO_REALTIME:
+		SetThreadPriority(thread->th, THREAD_PRIORITY_TIME_CRITICAL);
+		break;
+	}
+
+#else
+	result = pthread_attr_init(&thread->attr);
+
+	if (result != 0) {
+		thread->state = IPOSIX_THREAD_STATE_STOP;
+		IMUTEX_UNLOCK(&thread->lock);
+		return -5;
+	}
+
+	thread->attr_inited = 1;
+
+	result = pthread_attr_setdetachstate(&thread->attr,
+		PTHREAD_CREATE_DETACHED);
+	result |= pthread_attr_setstacksize(&thread->attr, 
+		thread->stacksize);
+
+	result |= pthread_create(&thread->ptid, &thread->attr, 
+		iposix_thread_bootstrap_unix, thread);
+
+	if (result != 0) {
+		thread->ptid = (pthread_t)0;
+		thread->state = IPOSIX_THREAD_STATE_STOP;
+		pthread_attr_destroy(&thread->attr);
+		thread->attr_inited = 0;
+		IMUTEX_UNLOCK(&thread->lock);
+		return -6;
+	}
+
+	iposix_event_wait(thread->event, 10000);
+
+	if (thread->state != IPOSIX_THREAD_STATE_STARTED) {
+		pthread_cancel(thread->ptid);
+		thread->ptid = (pthread_t)0;
+		pthread_attr_destroy(&thread->attr);
+		thread->attr_inited = 0;
+		IMUTEX_UNLOCK(&thread->lock);
+		return -7;
+	}
+	
+	pmin = sched_get_priority_min(policy);
+	pmax = sched_get_priority_max(policy);
+
+	if (pmin != EINVAL && pmax != EINVAL) {
+		switch (thread->priority) {
+		case IPOSIX_THREAD_PRIO_LOW:
+			param.sched_priority = pmin + 1;
+			break;
+		case IPOSIX_THREAD_PRIO_NORMAL:
+			param.sched_priority = (pmin + pmax) / 2;
+			break;
+		case IPOSIX_THREAD_PRIO_HIGH:
+			param.sched_priority = pmax - 3;
+			break;
+		case IPOSIX_THREAD_PRIO_HIGHEST:
+			param.sched_priority = pmax - 2;
+			break;
+		case IPOSIX_THREAD_PRIO_REALTIME:
+			param.sched_priority = pmax - 1;
+			break;
+		}
+		pthread_setschedparam(thread->ptid, policy, &param);
+	}
+#endif
+
+	IMUTEX_UNLOCK(&thread->lock);
+
+	return 0;
+}
+
+
+/* thread bootstrap */
+static void iposix_thread_bootstrap(iPosixThread *thread)
+{
+	int success = 0;
+
+#ifdef _WIN32
+	TlsSetValue(iposix_thread_local, thread);
+	if (TlsGetValue(iposix_thread_local) == (LPVOID)thread)
+		success = 1;
+#else
+	pthread_setspecific(iposix_thread_local, thread);
+	if (pthread_getspecific(iposix_thread_local) == (void*)thread)
+		success = 1;
+#endif
+
+	if (success == 0) {
+		thread->state = IPOSIX_THREAD_STATE_STOP;
+		iposix_event_set(thread->event);
+		return;
+	}
+
+	thread->state = IPOSIX_THREAD_STATE_STARTED;
+	iposix_event_set(thread->event);
+
+	do {
+		if (thread->target) {
+			if (thread->target(thread->obj) == 0) 
+				thread->alive = 0;
+		}
+		else {
+			thread->alive = 0;
+		}
+	}	while (thread->alive);
+
+	IMUTEX_LOCK(&thread->lock);
+
+#ifdef _WIN32
+	if (thread->th) {
+		CloseHandle(thread->th);
+		thread->th = NULL;
+	}
+	thread->tid = 0;
+#else
+	thread->ptid = (pthread_t)0;
+	if (thread->attr_inited) {
+		pthread_attr_destroy(&thread->attr);
+		thread->attr_inited = 0;
+	}
+#endif
+
+	thread->alive = 0;
+	thread->state = IPOSIX_THREAD_STATE_STOP;
+	iposix_cond_wake_all(thread->cond);
+
+	IMUTEX_UNLOCK(&thread->lock);
+}
+
+
+/* join thread, wait the thread finish */
+int iposix_thread_join(iPosixThread *thread, unsigned long millisec)
+{
+	IINT64 tsnow, deadline;
+	int result = 0;
+
+	if (thread == NULL) return -1;
+	if (thread->target == NULL) return -2;
+	
+	IMUTEX_LOCK(&thread->lock);
+
+	if (thread->target == NULL) {
+		IMUTEX_UNLOCK(&thread->lock);
+		return -3;
+	}
+
+	if (thread->state == IPOSIX_THREAD_STATE_STOP) {
+		IMUTEX_UNLOCK(&thread->lock);
+		return 0;
+	}	else {
+#ifdef _WIN32
+		DWORD current;
+		current = GetCurrentThreadId();
+		if (current == thread->tid) {
+			IMUTEX_UNLOCK(&thread->lock);
+			return -4;
+		}
+#else
+		pthread_t current;
+		current = pthread_self();
+		if (current == thread->ptid) {
+			IMUTEX_UNLOCK(&thread->lock);
+			return -4;
+		}
+#endif
+	}
+
+	tsnow = iclock64();
+	deadline = tsnow + millisec;
+
+	while (thread->state != IPOSIX_THREAD_STATE_STOP) {
+		if (millisec != IEVENT_INFINITE) {
+			IINT64 delta;
+			tsnow = iclock64();
+			if (tsnow >= deadline) break;
+			delta = deadline - tsnow;
+			if (delta > 10000) delta = 10000;
+			iposix_cond_sleep_cs_time(thread->cond, &thread->lock, 
+				(unsigned long)delta);
+		}	else {
+			iposix_cond_sleep_cs(thread->cond, &thread->lock);
+		}
+	}
+
+#ifndef _WIN32
+	if (thread->attr_inited) {
+		pthread_attr_destroy(&thread->attr);
+		thread->attr_inited = 0;
+	}
+#endif
+
+	if (thread->state == IPOSIX_THREAD_STATE_STOP) {
+		result = 1;
+	}
+	
+	iposix_cond_wake_all(thread->cond);
+
+	IMUTEX_UNLOCK(&thread->lock);
+
+	if (result == 0)
+		return -6;
+
+	return 0;
+}
+
+
+/* kill thread: very dangerous */
+int iposix_thread_cancel(iPosixThread *thread)
+{
+	int result = 0;
+
+	if (thread == NULL) return -1;
+	if (thread->target == NULL) return -2;
+	
+	IMUTEX_LOCK(&thread->lock);
+
+	if (thread->target == NULL) {
+		IMUTEX_UNLOCK(&thread->lock);
+		return -3;
+	}
+
+	if (thread->state == IPOSIX_THREAD_STATE_STOP) {
+		IMUTEX_UNLOCK(&thread->lock);
+		return 0;
+	}
+
+	if (thread->state != IPOSIX_THREAD_STATE_STOP) {
+	#ifdef _WIN32
+		assert(thread->th);
+		if (thread->th) {
+			if (TerminateThread(thread->th, 0)) {
+				result = 1;
+			}
+			CloseHandle(thread->th);
+		}
+		thread->th = NULL;
+		thread->tid = 0;
+	#else
+		assert(thread->ptid);
+		if (thread->ptid) {
+			if (pthread_cancel(thread->ptid) == 0) {
+				result = 1;
+			}
+		}
+		thread->ptid = 0;
+		if (thread->attr_inited) {
+			pthread_attr_destroy(&thread->attr);
+			thread->attr_inited = 0;
+		}
+	#endif
+	}
+
+	thread->state = IPOSIX_THREAD_STATE_STOP;
+
+	iposix_cond_wake_all(thread->cond);
+	IMUTEX_UNLOCK(&thread->lock);
+	
+	if (result == 0) 
+		return -4;
+
+	return 0;
+}
+
+
+/* get current thread object from local storage */
+iPosixThread *iposix_thread_current(void)
+{
+	iPosixThread *obj = NULL;
+
+	if (iposix_thread_inited == 0) {
+		if (iposix_thread_init() != 0) return NULL;
+	}
+
+#ifdef _WIN32
+	obj = (iPosixThread*)TlsGetValue(iposix_thread_local);
+#else
+	obj = (iPosixThread*)pthread_getspecific(iposix_thread_local);
+#endif
+	
+	if (obj == NULL) return NULL;
+	if (obj->mask != 0x11223344) return NULL;
+	if (obj->target == NULL) return NULL;
+
+	return obj;
+}
+
+
+/* stop repeatly calling iPosixThreadFun, if thread is NULL, use current */
+void iposix_thread_set_notalive(iPosixThread *thread)
+{
+	if (thread == NULL) thread = iposix_thread_current();
+	if (thread == NULL) return;
+	thread->alive = 0;
+}
+
+/* returns 1 for running, 0 for not running */
+int iposix_thread_is_running(iPosixThread *thread)
+{
+	if (thread == NULL) thread = iposix_thread_current();
+	if (thread == NULL) return 0;
+	if (thread->state == IPOSIX_THREAD_STATE_STOP) return 0;
+	return 1;
+}
+
+/* set thread priority, the thread must not be started */
+int iposix_thread_set_priority(iPosixThread *thread, int priority)
+{
+	int retval = -2;
+	if (thread == NULL) return -1;
+	IMUTEX_LOCK(&thread->lock);
+	if (thread->state == IPOSIX_THREAD_STATE_STOP) {
+		thread->priority = priority;
+		retval = 0;
+	}
+	IMUTEX_UNLOCK(&thread->lock);
+	return retval;
+}
+
+/* set stack size, the thread must not be started */
+int iposix_thread_set_stack(iPosixThread *thread, int stacksize)
+{
+	int retval = -2;
+	if (thread == NULL) return -1;
+	IMUTEX_LOCK(&thread->lock);
+	if (thread->state == IPOSIX_THREAD_STATE_STOP) {
+		thread->stacksize = stacksize;
+		retval = 0;
+	}
+	IMUTEX_UNLOCK(&thread->lock);
+	return retval;
+}
+
+/* set cpu mask affinity, the thread must be started (supports win/linux)*/
+int iposix_thread_affinity(iPosixThread *thread, unsigned int cpumask)
+{
+	int retval = 0;
+	if (thread == NULL || cpumask == 0) return -1;
+	IMUTEX_LOCK(&thread->lock);
+	if (thread->state == IPOSIX_THREAD_STATE_STARTED) {
+	#if defined(_WIN32)
+		DWORD mask = (DWORD)cpumask;
+		if (SetThreadAffinityMask(thread->th, mask) == 0) retval = -2;
+	#elif defined(__CYGWIN__) || defined(__llvm__)
+		retval = -3;
+	#elif defined(linux) || defined(__ANDROID__)
+		cpu_set_t mask;
+		int i;
+		CPU_ZERO(&mask);
+		for (i = 0; i < 32; i++) {
+			if (cpumask & (((unsigned int)1) << i)) 
+				CPU_SET(i, &mask);
+		}
+		#ifdef __ANDROID__
+		retval = syscall(__NR_sched_setaffinity, thread->ptid,
+			sizeof(mask), &mask);
+		#else
+		retval = sched_setaffinity(thread->ptid, sizeof(mask), &mask);
+		#endif
+		if (retval != 0) retval = -2;
+	#else
+		retval = -4;
+	#endif
+	}
+	IMUTEX_UNLOCK(&thread->lock);
+	return retval;
+}
+
+
+/* set signal: if thread is NULL, current thread object is used */
+void iposix_thread_set_signal(iPosixThread *thread, int sig)
+{
+	if (thread == NULL) thread = iposix_thread_current();
+	if (thread == NULL) return;
+	IMUTEX_LOCK(&thread->critical);
+	thread->sig = sig;
+	IMUTEX_UNLOCK(&thread->critical);
+}
+
+/* get signal: if thread is NULL, current thread object is used */
+int iposix_thread_get_signal(iPosixThread *thread)
+{
+	int sig;
+	if (thread == NULL) thread = iposix_thread_current();
+	if (thread == NULL) return -1;
+	IMUTEX_LOCK(&thread->critical);
+	sig = thread->sig;
+	IMUTEX_UNLOCK(&thread->critical);
+	return sig;
+}
+
+
+/* get name: if thread is NULL, current thread object is used */
+const char *iposix_thread_get_name(iPosixThread *thread)
+{
+	if (thread == NULL) thread = iposix_thread_current();
+	if (thread == NULL) return NULL;
+	return thread->name;
+}
+
+
+
+/*===================================================================*/
+/* Timer Cross-Platform Interface                                    */
+/*===================================================================*/
+struct iPosixTimer
+{
+	iConditionVariable *wait;
+	IMUTEX_TYPE lock;
+	IINT64 start;
+	IINT64 slap;
+	int started;
+	int periodic;
+	unsigned long delay;
+#ifdef _WIN32
+	HANDLE event;
+	DWORD id;
+#endif
+};
+
+
+/* new timer */
+iPosixTimer *iposix_timer_new(void)
+{
+	iPosixTimer *timer;
+	timer = (iPosixTimer*)ikmalloc(sizeof(iPosixTimer));
+	if (timer == NULL) return NULL;
+	timer->wait = iposix_cond_new();
+	if (timer->wait == NULL) {
+		if (timer->wait) iposix_cond_delete(timer->wait);
+		timer->wait = NULL;
+		ikfree(timer);
+		return NULL;
+	}
+	IMUTEX_INIT(&timer->lock);
+	timer->started = 0;
+	timer->periodic = 0;
+	timer->delay = 0;
+#ifdef _WIN32
+	timer->id = 0;
+	timer->event = NULL;
+	#if 1
+	timer->event = CreateEvent(NULL, FALSE, FALSE, NULL);
+	if (timer->event == NULL) {
+		iposix_timer_delete(timer);
+		return NULL;
+	}
+	#endif
+#endif
+	return timer;
+}
+
+/* delete timer */
+void iposix_timer_delete(iPosixTimer *timer)
+{
+	if (timer) {
+		if (timer->wait) iposix_cond_delete(timer->wait);
+		timer->wait = NULL;
+	#ifdef _WIN32
+		if (timer->id) timeKillEvent(timer->id);
+		timer->id = 0;
+		if (timer->event) CloseHandle(timer->event);
+		timer->event = NULL;
+	#endif
+		IMUTEX_DESTROY(&timer->lock);
+		ikfree(timer);
+	}
+}
+
+/* start timer, delay is millisec, returns zero for success */
+int iposix_timer_start(iPosixTimer *timer, unsigned long delay, 
+	int periodic)
+{
+	if (timer == NULL) return -1;
+
+#ifdef _WIN32
+	if (timer->event) {
+		int retval = -1;
+		IMUTEX_LOCK(&timer->lock);
+		if (timer->id) timeKillEvent(timer->id);
+		if (periodic) {
+			timer->id = timeSetEvent(delay, 0, (LPTIMECALLBACK)timer->event,
+				0, TIME_PERIODIC | TIME_CALLBACK_EVENT_PULSE);
+		}	else {
+			timer->id = timeSetEvent(delay, 0, (LPTIMECALLBACK)timer->event,
+				0, TIME_ONESHOT | TIME_CALLBACK_EVENT_SET);
+		}
+		if (timer->id) {
+			retval = 0;
+		}
+		IMUTEX_UNLOCK(&timer->lock);
+		return retval;
+	}
+#endif
+
+	IMUTEX_LOCK(&timer->lock);
+	timer->started = -1;
+	iposix_cond_wake_all(timer->wait);
+	IMUTEX_UNLOCK(&timer->lock);
+
+	IMUTEX_LOCK(&timer->lock);
+	timer->start = iclock64();
+	timer->slap = timer->start + delay;
+	timer->periodic = periodic;
+	timer->started = 1;
+	timer->delay = delay;
+	iposix_cond_wake_all(timer->wait);
+	IMUTEX_UNLOCK(&timer->lock);
+
+	return 0;
+}
+
+/* stop timer */
+void iposix_timer_stop(iPosixTimer *timer)
+{
+	if (timer == NULL) return;
+#ifdef _WIN32
+	if (timer->event) {
+		IMUTEX_LOCK(&timer->lock);
+		if (timer->id) timeKillEvent(timer->id);
+		timer->id = 0;
+		IMUTEX_UNLOCK(&timer->lock);
+		return;
+	}
+#endif
+	IMUTEX_LOCK(&timer->lock);
+	timer->started = 0;
+	iposix_cond_wake_all(timer->wait);
+	IMUTEX_UNLOCK(&timer->lock);
+}
+
+
+/* wait, returns 1 for timer, otherwise for timeout */
+int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec)
+{
+	IINT64 current;
+	IINT64 deadline;
+	int retval = 0;
+	if (timer == NULL) return 0;
+#ifdef _WIN32
+	if (timer->event) {
+		unsigned long res;
+		res = WaitForSingleObject(timer->event, millisec == IEVENT_INFINITE?
+			INFINITE : millisec);
+		if (res == WAIT_OBJECT_0) return 1;
+		return 0;
+	}
+#endif
+	current = iclock64();
+	deadline = current + millisec;
+	IMUTEX_LOCK(&timer->lock);
+	while (1) {
+		if (timer->started == 0) {
+			if (millisec == IEVENT_INFINITE) {
+				iposix_cond_sleep_cs(timer->wait, &timer->lock);
+			}	else {
+				IINT64 delta;
+				current = iclock64();
+				delta = deadline - current;
+				if (delta > 0) {
+					iposix_cond_sleep_cs_time(timer->wait, &timer->lock, 
+						(unsigned long)delta);
+				}	else {
+					break;
+				}
+			}
+			continue;
+		}
+		else if (timer->started == 1) {
+			current = iclock64();
+			if (current - timer->slap > 50000) {
+				timer->slap = current;
+			}
+			if (current >= timer->slap) {
+				retval = 1;
+				if (timer->periodic == 0) {
+					timer->started = 0;
+				}	else {
+					timer->slap += timer->delay;
+				}
+				break;
+			}
+			else if (millisec != IEVENT_INFINITE && current >= deadline) {
+				break;
+			}
+			else {
+				IINT64 delta = timer->slap - current;
+				if (millisec != IEVENT_INFINITE) {
+					if (deadline - current < delta) 
+						delta = deadline - current;
+				}
+				iposix_cond_sleep_cs_time(timer->wait, &timer->lock,
+					(unsigned long)delta);
+			}
+		}
+		else {
+			break;
+		}
+	}
+	IMUTEX_UNLOCK(&timer->lock);
+	return retval;
+}
+
+
+/* wait infinite */
+int iposix_timer_wait(iPosixTimer *timer)
+{
+	return iposix_timer_wait_time(timer, IEVENT_INFINITE);
+}
+
+
