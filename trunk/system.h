@@ -12,6 +12,10 @@
 // EventPosix        事件，跨平台的 Win32 Event
 // ReadWriteLock     读写锁
 //
+// Thread            线程控制对象
+// Clock             用于读取的时钟
+// Timer             用于等待唤醒的时钟
+//
 // KernelPoll        异步事件：精简的 libevent
 // SockAddress       套接字地址：IPV4地址管理
 //
@@ -261,6 +265,182 @@ protected:
 	iRwLockPosix *_rwlock;
 };
 
+
+//---------------------------------------------------------------------
+// 线程类 Python模式
+//---------------------------------------------------------------------
+class Thread
+{
+public:
+	// 这是线程启动的函数，Thread构造函数时传入，开始后会被持续调用
+	// 直到它返回 false/0，或者调用了 set_notalive
+	typedef int (*ThreadRunFunction)(void *parameter);
+
+	// 构造函数，传入启动函数及参数，
+	Thread(ThreadRunFunction func, void *parameter, const char *name = NULL) {
+		_thread = iposix_thread_new(func, parameter, name);
+		if (_thread == NULL)
+			SYSTEM_THROW("create Thread failed", 10003);
+	}
+
+	virtual ~Thread() {
+		if (_thread) iposix_thread_delete(_thread);
+		_thread = NULL;
+	}
+
+	// 开始线程
+	void start() {
+		int hr = iposix_thread_start(_thread);
+		if (hr != 0) {
+			char text[128];
+			strncpy(text, "start thread(", 100);
+			strncpy(text, iposix_thread_get_name(_thread), 100);
+			strncpy(text, ") failed", 100);
+			SYSTEM_THROW(text, 10004);
+		}
+	}
+
+	// 等待线程结束
+	bool join(unsigned long millisec = 0xffffffff) {
+		int hr = iposix_thread_join(_thread, millisec);
+		if (hr != 0) return false;
+		return true;
+	}
+
+	// 杀死线程：危险
+	bool kill() {
+		int hr = iposix_thread_cancel(_thread);
+		return hr == 0? true : false;
+	}
+
+	// 设置为非活动
+	void set_notalive() {
+		iposix_thread_set_notalive(_thread);
+	}
+
+	// 检测是否运行中
+	bool is_running() const {
+		return iposix_thread_is_running(_thread)? true : false;
+	}
+
+	// 线程优先级
+	enum ThreadPriority
+	{
+		PriorityLow	= 0,
+		PriorityNormal = 1,
+		PriorityHigh = 2,
+		PriorityHighest = 3,
+		PriorityRealtime = 4,
+	};
+
+	// 设置线程优先级，开始线程之前设置
+	bool set_priority(enum ThreadPriority priority) {
+		return iposix_thread_set_priority(_thread, (int)priority) == 0 ? true : false;
+	}
+
+	// 设置栈大小，开始线程前设置，默认 1024 * 1024
+	bool set_stack(int stacksize) {
+		return iposix_thread_set_stack(_thread, stacksize) == 0? true : false;
+	}
+
+	// 设置运行的 cpu，必须是开始线程后设置
+	bool set_affinity(unsigned int cpumask) {
+		return iposix_thread_affinity(_thread, cpumask) == 0? true : false;
+	}
+
+	// 设置信号
+	void set_signal(int sig) {
+		iposix_thread_set_signal(_thread, sig);
+	}
+
+	// 取得信号
+	int get_signal() {
+		return iposix_thread_get_signal(_thread);
+	}
+
+	// 取得名字
+	const char *get_name() const {
+		return iposix_thread_get_name(_thread);
+	}
+
+	// 以下为线程内部调用的静态成员
+
+	// 取得当前线程名称
+	static const char *CurrentName() {
+		return iposix_thread_get_name(NULL);
+	}
+
+	// 取得当前线程信号
+	static int CurrentSignal() { 
+		return iposix_thread_get_signal(NULL); 
+	}
+
+	// 设置当前线程信号
+	static void SetCurrentSignal(int sig) {
+		iposix_thread_set_signal(NULL, sig);
+	}
+
+protected:
+	iPosixThread *_thread;
+};
+
+
+
+//---------------------------------------------------------------------
+// 时间函数
+//---------------------------------------------------------------------
+class Clock
+{
+public:
+	// 取得 32位的毫秒级别时钟
+	static inline IUINT32 GetInMs() { return iclock(); }
+
+	// 取得 64位的毫秒级别时钟
+	static IUINT64 GetTick() { return iclock64(); }	// millisec
+
+	// 取得 64位的微秒级别时钟（1微秒=1/1000000秒）
+	static IUINT64 GetRealTime() { return iclockrt(); }	// usec
+};
+
+
+//---------------------------------------------------------------------
+// 时钟控制
+//---------------------------------------------------------------------
+class Timer
+{
+public:
+	Timer() {
+		_timer = iposix_timer_new();
+		if (_timer == NULL) 
+			SYSTEM_THROW("create Timer failed", 10004);
+	}
+
+	virtual ~Timer() {
+		if (_timer) iposix_timer_delete(_timer);
+		_timer = NULL;
+	}
+
+	// 开始时钟
+	bool start(unsigned long delay, bool periodic = true) {
+		return iposix_timer_start(_timer, delay, periodic? 1 : 0) == 0 ? true : false;
+	}
+	// 结束时钟
+	void stop() {
+		iposix_timer_stop(_timer);
+	}
+
+	// 等待，默认无限等待，单位毫秒
+	bool wait(unsigned long timeout = 0xffffffff) {
+		if (timeout == 0xffffffff) {
+			return iposix_timer_wait(_timer)? true : false;
+		}	else {
+			return iposix_timer_wait_time(_timer, timeout)? true : false;
+		}
+	}
+
+protected:
+	iPosixTimer *_timer;
+};
 
 
 //---------------------------------------------------------------------
