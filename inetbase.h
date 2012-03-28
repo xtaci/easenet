@@ -1,8 +1,9 @@
 /**********************************************************************
  *
- * inetbase.h - basic interface of socket operation
+ * inetbase.h - basic interface of socket operation & system calls
  *
- * for more information, please see the readme file
+ * for more information, please see the readme file.
+ * link: -lpthread -lrt (unix) / -lwsock32 -lwinmm -lws2_32 (win)
  *
  **********************************************************************/
 
@@ -228,6 +229,16 @@ typedef SOCKET Socket;
 	#define __imac__
 	#endif
 #endif
+
+#if defined(linux) || defined(__linux) || defined(__linux__)
+	#ifndef __linux
+		#define __linux 1
+	#endif
+	#ifndef __linux__
+		#define __linux__ __linux
+	#endif
+#endif
+
 
 /* check ICLOCK_TYPE_REALTIME for using pthread_condattr_setclock */
 #if defined(__CYGWIN__)

@@ -1,8 +1,9 @@
 /**********************************************************************
  *
- * inetbase.c - basic interface of socket operation
+ * inetbase.c - basic interface of socket operation & system calls
  *
- * for more information, please see the readme file
+ * for more information, please see the readme file.
+ * link: -lpthread -lrt (unix) / -lwsock32 -lwinmm -lws2_32 (win)
  *
  **********************************************************************/
 
@@ -186,6 +187,34 @@ unsigned long iclock(void)
 {
 	iclock64();
 	return (unsigned long)(itimeclock & 0xfffffffful);
+}
+
+
+/* real time usec (1/1000000 sec) clock */
+IINT64 iclockrt(void)
+{
+	IINT64 current;
+#ifndef _WIN32
+	struct timespec ts;
+	#if (!defined(__imac__)) && (!defined(ITIME_USE_GET_TIME_OF_DAY))
+		#ifdef ICLOCK_TYPE_REALTIME
+		clock_gettime(CLOCK_REALTIME, &ts);
+		#else
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		#endif
+	#else
+		struct timeval tv;
+		gettimeofday(&tv, 0);
+		ts.tv_sec  = tv.tv_sec;
+		ts.tv_nsec = tv.tv_usec * 1000;
+	#endif
+	current = ((IINT64)ts.tv_sec) * 1000000 + ((IINT64)ts.tv_nsec) / 1000;
+#else
+	long sec, usec;
+	itimeofday(&sec, &usec);
+	current = ((IINT64)sec) * 1000000 + ((IINT64)usec);
+#endif
+	return current;
 }
 
 
@@ -1218,7 +1247,7 @@ int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 #define IHAVE_KEVENT
 #endif
 #endif
-#if defined(linux)
+#if defined(__linux__)
 #define IHAVE_EPOLL
 /*#define IHAVE_RTSIG*/
 #endif
@@ -2880,12 +2909,12 @@ static int iposix_cond_posix_sleep_cs_time(iConditionVariablePosix *cond,
 	if (millisec != INFINITE) {
 		struct timespec ts;
 		int res;
-	#ifndef __imac__
-	#ifdef ICLOCK_TYPE_REALTIME
+	#if (!defined(__imac__)) && (!defined(ITIME_USE_GET_TIME_OF_DAY))
+		#ifdef ICLOCK_TYPE_REALTIME
 		clock_gettime(CLOCK_REALTIME, &ts);
-	#else
+		#else
 		clock_gettime(CLOCK_MONOTONIC, &ts);
-	#endif
+		#endif
 	#else
 		struct timeval tv;
 		gettimeofday(&tv, 0);
@@ -4055,7 +4084,7 @@ int iposix_thread_affinity(iPosixThread *thread, unsigned int cpumask)
 		if (SetThreadAffinityMask(thread->th, mask) == 0) retval = -2;
 	#elif defined(__CYGWIN__) || defined(__llvm__)
 		retval = -3;
-	#elif defined(linux) || defined(__ANDROID__)
+	#elif defined(__linux__) || defined(__ANDROID__)
 		cpu_set_t mask;
 		int i;
 		CPU_ZERO(&mask);
@@ -4206,12 +4235,7 @@ int iposix_timer_start(iPosixTimer *timer, unsigned long delay,
 #endif
 
 	IMUTEX_LOCK(&timer->lock);
-	timer->started = -1;
-	iposix_cond_wake_all(timer->wait);
-	IMUTEX_UNLOCK(&timer->lock);
-
-	IMUTEX_LOCK(&timer->lock);
-	timer->start = iclock64();
+	timer->start = iclockrt() / 1000;
 	timer->slap = timer->start + delay;
 	timer->periodic = periodic;
 	timer->started = 1;
@@ -4258,7 +4282,7 @@ int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec)
 		return 0;
 	}
 #endif
-	current = iclock64();
+	current = iclockrt() / 1000;
 	deadline = current + millisec;
 	IMUTEX_LOCK(&timer->lock);
 	while (1) {
@@ -4267,7 +4291,7 @@ int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec)
 				iposix_cond_sleep_cs(timer->wait, &timer->lock);
 			}	else {
 				IINT64 delta;
-				current = iclock64();
+				current = iclockrt() / 1000;
 				delta = deadline - current;
 				if (delta > 0) {
 					iposix_cond_sleep_cs_time(timer->wait, &timer->lock, 
@@ -4279,10 +4303,12 @@ int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec)
 			continue;
 		}
 		else if (timer->started == 1) {
-			current = iclock64();
-			if (current - timer->slap > 50000) {
+			current = iclockrt() / 1000;
+		#if 1
+			if (current - timer->slap > ((IINT64)timer->delay) * 1000) {
 				timer->slap = current;
 			}
+		#endif
 			if (current >= timer->slap) {
 				retval = 1;
 				if (timer->periodic == 0) {
