@@ -27,6 +27,7 @@
 // CsvReader         CSV文件读取
 // CsvWriter         CSV文件写入
 // HttpRequest       反照 Python的 urllib，非阻塞和阻塞模式
+// Path              仿照 Python的 os.path 路径连接，绝对路径等
 //
 //=====================================================================
 #ifndef __SYSTEM_H__
@@ -1152,7 +1153,9 @@ protected:
 //---------------------------------------------------------------------
 #ifndef IDISABLE_FILE_SYSTEM_ACCESS
 
-namespace Path {
+class Path {
+
+public:
 
 	// 取得绝对路径
 	static inline bool Absolute(const char *path, std::string &output) {
