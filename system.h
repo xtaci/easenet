@@ -284,6 +284,13 @@ public:
 	}
 
 	virtual ~Thread() {
+		if (is_running()) {
+			char text[128];
+			strncpy(text, "thread(", 100);
+			strncat(text, iposix_thread_get_name(_thread), 100);
+			strncat(text, ") is still running", 100);
+			SYSTEM_THROW(text, 10010);
+		}
 		if (_thread) iposix_thread_delete(_thread);
 		_thread = NULL;
 	}
@@ -294,8 +301,8 @@ public:
 		if (hr != 0) {
 			char text[128];
 			strncpy(text, "start thread(", 100);
-			strncpy(text, iposix_thread_get_name(_thread), 100);
-			strncpy(text, ") failed", 100);
+			strncat(text, iposix_thread_get_name(_thread), 100);
+			strncat(text, ") failed", 100);
 			SYSTEM_THROW(text, 10004);
 		}
 	}
