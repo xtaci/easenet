@@ -92,7 +92,12 @@ static int inet_sockpair_imp(int fds[2])
 	
 	addr1.sin_family = AF_INET;
 	addr1.sin_port = 0;
+
+#ifdef INADDR_LOOPBACK
 	addr1.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+#else
+	addr1.sin_addr.s_addr = htonl(0x7f000001);
+#endif
 
 	if (ibind(listener, (struct sockaddr*)&addr1))
 		goto failed;
@@ -937,13 +942,13 @@ static inline struct ITMCLIENT *itms_client(struct ITMHOST *host, long hid)
 static inline void itms_push(struct ITMHOST *host, int event, long wparam,
 	long lparam, const void *data, long size)
 {
-	unsigned char head[12];
+	char head[14];
 	size = size < 0 ? 0 : size;
-	*(unsigned short*)(head + 0) = (unsigned short)(size + 12);
-	*(unsigned short*)(head + 2) = (unsigned short)event;
-	*(long*)(head + 4) = wparam;
-	*(long*)(head + 8) = lparam;
-	ims_write(&host->event, head, 12);
+	iencode32u_lsb(head, (long)(size + 14));
+	iencode16u_lsb(head + 4, (unsigned short)event);
+	iencode32u_lsb(head + 6, wparam);
+	iencode32u_lsb(head + 10, lparam);
+	ims_write(&host->event, head, 14);
 	ims_write(&host->event, data, size);
 }
 
@@ -1085,30 +1090,36 @@ void itms_nodelay(struct ITMHOST *host, long hid, int nodelay)
 long itms_read(struct ITMHOST *host, int *msg, long *wparam, long *lparam,
 	void *data, long size)
 {
-	unsigned char head[12];
+	char head[14];
 	struct ITMCLIENT *client;
 	long length, canread, id;
 	long WPARAM, LPARAM;
+	IUINT32 x; IUINT16 y;
 	int EVENT;
 
 	assert(host);
-	length = ims_peek(&host->event, head, 12);
+	length = ims_peek(&host->event, head, 14);
 	if (msg) *msg = -1;
-	if (length != 12) return -1;
-	length = *(unsigned short*)(head + 0);
+	if (length != 14) return -1;
+	
+	idecode32u_lsb(head, &x);
+	length = x;
 
-	assert(host->event.size >= (IUINT32)length && length >= 12);
+	assert(host->event.size >= (IUINT32)length && length >= 14);
 
-	ims_drop(&host->event, 12);
-	length -= 12;
+	ims_drop(&host->event, 14);
+	length -= 14;
 	canread = length < size ? length : size;
 	if (data) ims_read(&host->event, data, canread);
 	else ims_drop(&host->event, canread);
 	if (canread < length) ims_drop(&host->event, length - canread);
 
-	EVENT = *(unsigned short*)(head + 2);
-	WPARAM = *(long*)(head + 4);
-	LPARAM = *(long*)(head + 8);
+	idecode16u_lsb(head + 4, &y);
+	EVENT = y;
+	idecode32u_lsb(head + 6, &x);
+	WPARAM = (long)x;
+	idecode32u_lsb(head + 10, &x);
+	LPARAM = (long)x;
 
 	if (EVENT == ITME_DATA || EVENT == ITME_LEAVE) {
 		id = WPARAM & 0xffff;

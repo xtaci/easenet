@@ -14,6 +14,37 @@
 #endif
 
 
+/*-------------------------------------------------------------------*/
+/* C99 Compatible                                                    */
+/*-------------------------------------------------------------------*/
+#ifdef _POSIX_C_SOURCE
+#if _POSIX_C_SOURCE < 200112L
+#undef _POSIX_C_SOURCE
+#endif
+#endif
+
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200112L
+#endif
+
+#ifdef _GNU_SOURCE
+#undef _GNU_SOURCE
+#endif
+
+#ifdef _BSD_SOURCE
+#undef _BSD_SOURCE
+#endif
+
+#ifdef __BSD_VISIBLE
+#undef __BSD_VISIBLE
+#endif
+
+#define _GNU_SOURCE 1
+#define _BSD_SOURCE 1
+#define __BSD_VISIBLE 1
+
+
+
 #ifndef IDISABLE_FILE_SYSTEM_ACCESS
 //---------------------------------------------------------------------
 // Global Definition
@@ -50,6 +81,12 @@
 #else 
 	typedef unsigned long ISTDUINT32; 
 	typedef long ISTDINT32;
+#endif
+#endif
+
+#if (defined(__APPLE__) && defined(__MACH__)) || defined(__MACOS__)
+#ifndef __unix
+#define __unix
 #endif
 #endif
 

@@ -10,9 +10,6 @@
 #ifndef __INETBASE_H__
 #define __INETBASE_H__
 
-#include <stddef.h>
-#include <stdlib.h>
-
 /*-------------------------------------------------------------------*/
 /* C99 Compatible                                                    */
 /*-------------------------------------------------------------------*/
@@ -41,6 +38,10 @@
 #define _GNU_SOURCE 1
 #define _BSD_SOURCE 1
 #define __BSD_VISIBLE 1
+
+
+#include <stddef.h>
+#include <stdlib.h>
 
 
 /*-------------------------------------------------------------------*/
@@ -241,7 +242,7 @@ typedef SOCKET Socket;
 
 
 /* check ICLOCK_TYPE_REALTIME for using pthread_condattr_setclock */
-#if defined(__CYGWIN__)
+#if defined(__CYGWIN__) || defined(__imac__)
 	#define ICLOCK_TYPE_REALTIME
 #endif
 

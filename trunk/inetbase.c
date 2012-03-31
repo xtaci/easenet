@@ -943,8 +943,10 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 /* set address of sockaddr */
 void isockaddr_set_ip(struct sockaddr *a, unsigned long ip)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in*)a;
-	addr->sin_addr.s_addr = htonl(ip);
+	union { struct sockaddr_in ain; struct sockaddr addr; } ts;
+	ts.addr = a[0];
+	ts.ain.sin_addr.s_addr = htonl(ip);
+	a[0] = ts.addr;
 }
 
 /* get address of sockaddr */
@@ -957,8 +959,10 @@ unsigned long isockaddr_get_ip(const struct sockaddr *a)
 /* set port of sockaddr */
 void isockaddr_set_port(struct sockaddr *a, int port)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in*)a;
-	addr->sin_port = htons((short)port);
+	union { struct sockaddr_in ain; struct sockaddr addr; } ts;
+	ts.addr = a[0];
+	ts.ain.sin_port = htons((short)port);
+	a[0] = ts.addr;
 }
 
 /* get port of sockaddr */
@@ -971,8 +975,10 @@ int isockaddr_get_port(const struct sockaddr *a)
 /* set family */
 void isockaddr_set_family(struct sockaddr *a, int family)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in*)a;
-	addr->sin_family = family;
+	union { struct sockaddr_in ain; struct sockaddr addr; } ts;
+	ts.addr = a[0];
+	ts.ain.sin_family = family;
+	a[0] = ts.addr;
 }
 
 /* get family */
@@ -985,19 +991,23 @@ int isockaddr_get_family(const struct sockaddr *a)
 /* setup sockaddr */
 struct sockaddr* isockaddr_set(struct sockaddr *a, unsigned long ip, int p)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in*)a;
-	memset(a, 0, sizeof(struct sockaddr));
-	addr->sin_family = AF_INET;
-	isockaddr_set_ip(a, ip);
-	isockaddr_set_port(a, p);
+	union { struct sockaddr_in ain; struct sockaddr addr; } ts;
+	memset(&ts.addr, 0, sizeof(struct sockaddr));
+	ts.ain.sin_family = AF_INET;
+	ts.ain.sin_addr.s_addr = htonl(ip);
+	ts.ain.sin_port = htons((short)p);
+	a[0] = ts.addr;
 	return a;
 }
 
 /* set text to ip */
 int isockaddr_set_ip_text(struct sockaddr *a, const char *text)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in*)a;
+	union { struct sockaddr_in ain; struct sockaddr addr; } ts;
+	struct sockaddr_in *addr = &ts.ain;
 	int is_name = 0, i;
+
+	ts.addr = a[0];
 
 	for (i = 0; text[i]; i++) {
 		if (!((text[i] >= '0' && text[i] <= '9') || text[i] == '.')) {
@@ -1030,10 +1040,12 @@ int isockaddr_set_ip_text(struct sockaddr *a, const char *text)
 			sizeof(addr->sin_addr));
 		XNetDnsRelease(pxndns);
 		#endif
+		a[0] = ts.addr;
 		return 0;
 	}
 	
 	addr->sin_addr.s_addr = inet_addr(text);
+	a[0] = ts.addr;
 
 	return 0;
 }
@@ -1704,6 +1716,7 @@ static int ips_poll_add(ipolld ipd, int fd, int mask, void *user)
 		ps->fv.fds[i].fd = -1;
 	}
 	ps->fv.fds[fd].fd = fd;
+
 	ps->fv.fds[fd].user = user;
 	ps->fv.fds[fd].mask = mask;
 
