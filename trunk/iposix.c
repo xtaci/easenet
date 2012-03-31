@@ -22,6 +22,10 @@
 #include <assert.h>
 #include <string.h>
 
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#include <sysctl.h>
+#endif
+
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
