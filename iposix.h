@@ -39,10 +39,14 @@
 #undef __BSD_VISIBLE
 #endif
 
+#ifdef _XOPEN_SOURCE
+#undef _XOPEN_SOURCE
+#endif
+
 #define _GNU_SOURCE 1
 #define _BSD_SOURCE 1
 #define __BSD_VISIBLE 1
-
+#define _XOPEN_SOURCE 600
 
 
 #ifndef IDISABLE_FILE_SYSTEM_ACCESS
