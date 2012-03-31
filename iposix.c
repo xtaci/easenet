@@ -17,8 +17,10 @@
 #include <sys/stat.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <assert.h>
+#include <string.h>
 
 #ifdef _WIN32
 #include <direct.h>
@@ -160,10 +162,20 @@ void iposix_stat_convert(iposix_stat_t *ostat, const iposix_ostat_t *x)
 	ostat->st_gid = (IUINT32)x->st_gid;
 	ostat->st_rdev = (IUINT32)x->st_rdev;
 
+#ifdef __unix
+//	#define IHAVE_STAT_ST_BLKSIZE
+//	#define IHAVE_STAT_ST_BLOCKS
+//	#define IHAVE_STAT_ST_FLAGS
+#endif
+
 #if defined(__unix)
+	#ifdef IHAVE_STAT_ST_BLOCKS
 	ostat->st_blocks = (IUINT32)x->st_blocks;
+	#endif
+	#ifdef IHAVE_STAT_ST_BLKSIZE
 	ostat->st_blksize = (IUINT32)x->st_blksize;
-	#if !defined(__CYGWIN__)
+	#endif
+	#if !defined(__CYGWIN__) && defined(IHAVE_STAT_ST_FLAGS)
 	ostat->st_flags = (IUINT32)x->st_flags;
 	#endif
 #endif
@@ -718,6 +730,7 @@ int iposix_path_splitext(const char *path, char *p1, int l1,
 		}
 		else if (IPATHSEP == '/') {
 			if (path[i] == '/') break;
+
 		}
 		else {
 			if (path[i] == '/' || path[i] == '\\') break;
@@ -725,6 +738,7 @@ int iposix_path_splitext(const char *path, char *p1, int l1,
 	}
 
 	if (p1) {
+
 		size = k < l1 ? k : l1;
 		if (size > 0) memcpy(p1, path, size);
 		if (size < l1) p1[size] = 0;
@@ -765,8 +779,6 @@ int iposix_path_exepath(char *ptr, int size)
 	hr = sysctl(mib, 4, ptr, &cb, NULL, 0);
 	if (hr >= 0) retval = (int)cb;
 #elif defined(linux) || defined(__CYGWIN__)
-	long length;
-	char *text;
 	FILE *fp;
 	fp = fopen("/proc/self/exename", "r");
 	if (fp) {
