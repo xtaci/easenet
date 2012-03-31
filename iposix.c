@@ -23,7 +23,7 @@
 #include <string.h>
 
 #if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-#include <sysctl.h>
+#include <sys/sysctl.h>
 #endif
 
 #ifdef _WIN32
