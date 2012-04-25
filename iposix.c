@@ -908,30 +908,12 @@ const char *iposix_get_exepath(void)
 const char *iposix_get_execwd(void)
 {
 	static int inited = 0;
-	static char *ptr = NULL;
+	static char ptr[IPOSIX_MAXBUFF + 10];
 	if (inited == 0) {
-		char *buffer = (char*)malloc(IPOSIX_MAXBUFF);
-		char *b2;
-		int size;
-		if (buffer == NULL) {
+		if (iposix_path_execwd(ptr, IPOSIX_MAXPATH) != 0) {
 			inited = -1;
 			return "";
 		}
-		if (iposix_path_execwd(buffer, IPOSIX_MAXPATH) != 0) {
-			free(buffer);
-			inited = -1;
-			return "";
-		}
-		size = (int)strlen(buffer);
-		b2 = (char*)malloc(size + 1);
-		if (b2 == NULL) {
-			free(buffer);
-			inited = -1;
-			return "";
-		}
-		memcpy(b2, buffer, size + 1);
-		free(buffer);
-		ptr = b2;
 		inited = 1;
 	}
 	if (inited < 0) return "";
