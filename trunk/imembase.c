@@ -1626,7 +1626,9 @@ void ikmem_destroy(void)
 	iqueue_head *p, *next;
 	ilong index;
 
-	assert(ikmem_inited);
+	if (ikmem_inited == 0) {
+		return;
+	}
 
 	imutex_lock(&ikmem_lock);
 	for (p = ikmem_head.next; p != &ikmem_head; ) {
