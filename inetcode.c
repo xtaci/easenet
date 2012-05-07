@@ -1163,6 +1163,494 @@ long itms_next(struct ITMHOST *host, long hid)
 
 
 //---------------------------------------------------------------------
+// PROXY
+//---------------------------------------------------------------------
+#define ISOCKPROXY_IN		1
+#define ISOCKPROXY_OUT		2
+#define ISOCKPROXY_ERR		4
+
+#define ISOCKPROXY_FAILED		(-1)
+#define ISOCKPROXY_START		0
+#define ISOCKPROXY_CONNECTING	1
+#define ISOCKPROXY_SENDING1		2
+#define ISOCKPROXY_RECVING1		3
+#define ISOCKPROXY_SENDING2		4
+#define ISOCKPROXY_RECVING2		5
+#define ISOCKPROXY_SENDING3		6
+#define ISOCKPROXY_RECVING3		7
+#define ISOCKPROXY_CONNECTED	10
+
+///
+/// 转换编码格式 iproxy_base64
+/// 成功返回长度
+///
+int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
+{
+	const char base64[] = 
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	unsigned char fragment; 
+	unsigned char*saveout = out;
+
+	for (; size >= 3; size -= 3) {
+		*out++ = base64[in[0] >> 2];
+		*out++ = base64[((in[0] << 4) & 0x30) | (in[1] >> 4)];
+		*out++ = base64[((in[1] << 2) & 0x3c) | (in[2] >> 6)];
+		*out++ = base64[in[2] & 0x3f];
+		in += 3;
+	}
+	if (size > 0) {
+		*out++ = base64[in[0] >> 2];
+		fragment = (in[0] << 4) & 0x30;
+		if (size > 1) fragment |= in[1] >> 4;
+		*out++ = base64[fragment];
+		*out++ = (size < 2) ? '=' : base64[(in[1] << 2) & 0x3c];
+		*out++ = '=';
+	}
+	*out = '\0';
+	return saveout - out;
+};
+
+
+///
+/// 做一次POLL操作
+///
+int iproxy_poll(int sock, int event, long millisec)
+{
+	int retval = 0;
+
+	#if defined(__unix) && (!defined(__llvm__))
+	struct pollfd pfd;
+	
+	pfd.fd = sock;
+	pfd.events = 0;
+	pfd.revents = 0;
+
+	pfd.events |= (event & ISOCKPROXY_IN)? POLLIN : 0;
+	pfd.events |= (event & ISOCKPROXY_OUT)? POLLOUT : 0;
+	pfd.events |= (event & ISOCKPROXY_ERR)? POLLERR : 0;
+
+	poll(&pfd, 1, millisec);
+
+	if ((event & ISOCKPROXY_IN) && (pfd.revents & POLLIN)) 
+		retval |= ISOCKPROXY_IN;
+	if ((event & ISOCKPROXY_OUT) && (pfd.revents & POLLOUT)) 
+		retval |= ISOCKPROXY_OUT;
+	if ((event & ISOCKPROXY_ERR) && (pfd.revents & POLLERR)) 
+		retval |= ISOCKPROXY_ERR;
+	#elif defined(__llvm__) 
+	struct timeval tmx = { 0, 0 };
+	fd_set fdr, fdw, fde;
+	fd_set *pr = NULL, *pw = NULL, *pe = NULL;
+	tmx.tv_sec = millisec / 1000;
+	tmx.tv_usec = (millisec % 1000) * 1000;
+	if (event & ISOCKPROXY_IN) {
+		FD_ZERO(&fdr);
+		FD_SET(sock, &fdr);
+		pr = &fdr;
+	}
+	if (event & ISOCKPROXY_OUT) {
+		FD_ZERO(&fdw);
+		FD_SET(sock, &fdw);
+		pw = &fdw;
+	}
+	if (event & ISOCKPROXY_ERR) {
+		FD_ZERO(&fde);
+		FD_SET(sock, &fde);
+		pe = &fde;
+	}
+	retval = select(sock + 1, pr, pw, pe, (millisec >= 0)? &tmx : 0);
+	retval = 0;
+	if ((event & ISOCKPROXY_IN) && FD_ISSET(sock, &fdr))
+		event |= ISOCKPROXY_IN;
+	if ((event & ISOCKPROXY_OUT) && FD_ISSET(sock, &fdw)) 
+		event |= ISOCKPROXY_OUT;
+	if ((event & ISOCKPROXY_ERR) && FD_ISSET(sock, &fde)) 
+		event |= ISOCKPROXY_ERR;
+	#else
+	struct timeval tmx = { 0, 0 };
+	union { void *ptr; fd_set *fds; } p[3];
+	int fdr[2], fdw[2], fde[2];
+
+	tmx.tv_sec = millisec / 1000;
+	tmx.tv_usec = (millisec % 1000) * 1000;
+	fdr[0] = fdw[0] = fde[0] = 1;
+	fdr[1] = fdw[1] = fde[1] = sock;
+
+	p[0].ptr = (event & ISOCKPROXY_IN)? fdr : NULL;
+	p[1].ptr = (event & ISOCKPROXY_OUT)? fdw : NULL;
+	p[2].ptr = (event & ISOCKPROXY_ERR)? fde : NULL;
+
+	retval = select( sock + 1, p[0].fds, p[1].fds, p[2].fds, 
+					(millisec >= 0)? &tmx : 0);
+	retval = 0;
+
+	if ((event & ISOCKPROXY_IN) && fdr[0]) retval |= ISOCKPROXY_IN;
+	if ((event & ISOCKPROXY_OUT) && fdw[0]) retval |= ISOCKPROXY_OUT;
+	if ((event & ISOCKPROXY_ERR) && fde[0]) retval |= ISOCKPROXY_ERR;
+	#endif
+
+	return retval;
+}
+
+
+///
+/// 返回错误码
+///
+int iproxy_errno(void)
+{
+	int retval;
+	#ifdef __unix
+	retval = errno;
+	#else
+	retval = (int)WSAGetLastError();
+	#endif
+	return retval;
+}
+
+
+///
+/// 发送数据
+///
+int iproxy_send(struct ISOCKPROXY *proxy)
+{
+	int retval;
+
+	if (proxy->offset >= proxy->totald) return 0;
+	if (iproxy_poll(proxy->socket, ISOCKPROXY_OUT | ISOCKPROXY_ERR, 0) == 0)
+		return 0;
+
+	retval = send(proxy->socket, proxy->data + proxy->offset, 
+		proxy->totald - proxy->offset, 0);
+	if (retval == 0) return -1;
+	if (retval == -1) {
+		if (iproxy_errno() == IEAGAIN) return 0;
+		return -2;
+	}
+	proxy->offset = proxy->offset + retval;
+
+	return retval;
+}
+
+
+///
+/// 接收数据
+///
+int iproxy_recv(struct ISOCKPROXY *proxy, int max)
+{
+	int retval;
+	int msize;
+
+	if (iproxy_poll(proxy->socket, ISOCKPROXY_IN | ISOCKPROXY_ERR, 0) == 0) 
+		return 0;
+
+	max = (max <= 0)? 0x10000 : max;
+	msize = (proxy->offset < max)? max - proxy->offset : 0;
+	if (msize == 0) return 0;
+
+	retval = recv(proxy->socket, proxy->data + proxy->offset, msize, 0);
+	if (retval == 0) return -1;
+	if (retval == -1) return (iproxy_errno() == IEAGAIN)? 0 : -2;
+
+	proxy->offset = proxy->offset + retval;
+	proxy->data[proxy->offset] = 0;
+	//printf("[PROXY_DATA] size=%d:\n{%s}\n", retval, proxy->data);
+
+	return retval;
+}
+
+
+///
+/// 初始化连接数据 ISOCKPROXY
+/// 选择 type有：ISOCKPROXY_TYPE_NONE, ISOCKPROXY_TYPE_HTTP, 
+//  ISOCKPROXY_TYPE_SOCKS4, ISOCKPROXY_TYPE_SOCKS5
+/// 
+int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type, 
+	const struct sockaddr *remote, const struct sockaddr *proxyd, 
+	const char *user, const char *pass, int mode)
+{
+	struct sockaddr_in *endpoint = (struct sockaddr_in*)remote;
+	unsigned char *bytes = (unsigned char*)&(endpoint->sin_addr.s_addr);
+	int authent = (user == NULL)? 0 : 1;
+	int ips[5], i, j;
+	char auth[512], auth64[512];
+	char addr[64];
+
+	proxy->socket = sock;
+	proxy->type = type;
+	proxy->next = 0;
+	proxy->offset = 0;
+	proxy->totald = 0;
+	proxy->errorc = 0;
+	proxy->remote = *remote;
+	proxy->proxyd = *proxyd;
+	proxy->authen = authent;
+
+	for (i = 0; i < 4; i++) ips[i] = (unsigned char)bytes[i];
+	ips[4] = (int)(htons(endpoint->sin_port));
+	sprintf(addr, "%d.%d.%d.%d:%d", ips[0], ips[1], ips[2], ips[3], ips[4]);
+
+	switch (proxy->type)
+	{
+	case ISOCKPROXY_TYPE_HTTP:
+		if (authent == 0) {
+			sprintf(proxy->data, "CONNECT %s HTTP/1.0\r\n\r\n", addr);
+		}	else {
+			sprintf(auth, "%s:%s", user, pass);
+			iproxy_base64((unsigned char*)auth, (unsigned char*)auth64, 
+				strlen(auth));
+			sprintf(proxy->data, 
+			"CONNECT %s HTTP/1.0\r\nProxy-Authorization: Basic %s\r\n\r\n", 
+			addr, auth64);
+		}
+		proxy->totald = strlen(proxy->data);
+		proxy->data[proxy->totald] = 0;
+		break;
+
+	case ISOCKPROXY_TYPE_SOCKS4:
+		proxy->data[0] = 4;
+		proxy->data[1] = 1;
+		memcpy(proxy->data + 2, &(endpoint->sin_port), 2);
+		memcpy(proxy->data + 4, &(endpoint->sin_addr), 4);
+		proxy->data[8] = 0;
+		proxy->totald = 0;
+		break;
+
+	case ISOCKPROXY_TYPE_SOCKS5:
+		if (authent == 0) {
+			proxy->data[0] = 5;
+			proxy->data[1] = 1;
+			proxy->data[2] = 0;
+			proxy->totald = 3;
+		}	else {
+			proxy->data[0] = 5;
+			proxy->data[1] = 2;
+			proxy->data[2] = 0;
+			proxy->data[3] = 2;
+			proxy->totald = 4;
+		}
+		proxy->data[402] = 5;
+		proxy->data[403] = 1;
+		proxy->data[404] = 0;
+		proxy->data[405] = 3;
+		sprintf(addr, "%d.%d.%d.%d", ips[0], ips[1], ips[2], ips[3]);
+		proxy->data[406] = strlen(addr);
+		memcpy(proxy->data + 407, addr, strlen(addr));
+		memcpy(proxy->data + 407 + strlen(addr), &(endpoint->sin_port), 2);
+		*(short*)(proxy->data + 400) = 7 + strlen(addr);
+		if (authent) {
+			i = strlen(user);
+			j = strlen(pass);
+			proxy->data[702] = 1;
+			proxy->data[703] = i;
+			memcpy(proxy->data + 704, user, i);
+			proxy->data[704 + i] = j;
+			memcpy(proxy->data + 704 + i + 1, pass, j);
+			*(short*)(proxy->data + 700) = 3 + i + j;
+		}
+		break;
+	}
+
+	return 0;
+}
+
+
+///
+/// 处理请求
+/// 成功返回1，失败返回<0，阻塞返回0
+///
+int iproxy_process(struct ISOCKPROXY *proxy)
+{
+	struct sockaddr *remote;
+	int retval = 0;
+
+	proxy->block = 0;
+
+	if (proxy->next == ISOCKPROXY_START) {
+		remote = (proxy->type == ISOCKPROXY_TYPE_NONE)? 
+			&(proxy->remote) : &(proxy->proxyd);
+		retval = connect(proxy->socket, remote, sizeof(struct sockaddr));
+		if (retval == 0) proxy->next = ISOCKPROXY_CONNECTING;
+		else proxy->next = (iproxy_errno() == IEAGAIN)? 
+			ISOCKPROXY_CONNECTING : ISOCKPROXY_FAILED;	
+		if (proxy->next == ISOCKPROXY_FAILED) proxy->errorc = 1;
+	}
+
+	if (proxy->next == ISOCKPROXY_CONNECTING) {
+		retval = iproxy_poll(proxy->socket, 
+			ISOCKPROXY_OUT | ISOCKPROXY_ERR, 0);
+		if (retval & ISOCKPROXY_ERR) {
+			proxy->errorc = 2;
+			proxy->next = ISOCKPROXY_FAILED;
+		}	else
+		if (retval & ISOCKPROXY_OUT) {
+			if (proxy->type == ISOCKPROXY_TYPE_NONE) 
+				proxy->next = ISOCKPROXY_CONNECTED;
+			else proxy->next = ISOCKPROXY_SENDING1;
+		}
+	}
+
+	if (proxy->next == ISOCKPROXY_SENDING1) {
+		retval = iproxy_send(proxy);
+		if (retval < 0) proxy->next = ISOCKPROXY_FAILED, proxy->errorc = 3;
+		else if (proxy->offset >= proxy->totald) {
+			proxy->data[proxy->offset] = 0;
+			proxy->next = ISOCKPROXY_RECVING1;
+			proxy->offset = 0;
+		}
+	}
+
+	if (proxy->next == ISOCKPROXY_FAILED) return -1;
+	if (proxy->next == ISOCKPROXY_CONNECTED) return 1;
+
+	if (proxy->type == ISOCKPROXY_TYPE_NONE) return 0;
+
+	if (proxy->type == ISOCKPROXY_TYPE_HTTP) {
+		if (proxy->next == ISOCKPROXY_RECVING1) {
+			for (; proxy->next == ISOCKPROXY_RECVING1; ) {
+				retval = iproxy_recv(proxy, proxy->offset + 1);
+				proxy->data[proxy->offset] = 0;
+				if (retval ==0) break;
+				if (retval < 0) {
+					proxy->next = ISOCKPROXY_FAILED;
+					proxy->errorc = 10;
+				}	else if (proxy->offset > 4) {
+					if (strcmp(proxy->data + proxy->offset - 4, 
+						"\r\n\r\n") == 0) {
+						retval = 0;
+						if (memcmp(proxy->data, "HTTP/1.0 200", 
+							strlen("HTTP/1.0 200")) == 0) retval = 1;
+						if (memcmp(proxy->data, "HTTP/1.1 200", 
+							strlen("HTTP/1.1 200")) == 0) retval = 1;
+						if (retval == 1) proxy->next = ISOCKPROXY_CONNECTED;
+						else {
+							proxy->next = ISOCKPROXY_FAILED;
+							proxy->errorc = 11;
+						}
+					}
+				}
+			}
+		}
+	}	else
+	if (proxy->type == ISOCKPROXY_TYPE_SOCKS4) {
+		if (proxy->next == ISOCKPROXY_RECVING1) {
+			if (iproxy_recv(proxy, 8) < 0) {
+				proxy->next = ISOCKPROXY_FAILED;
+				proxy->errorc = 20;
+			}
+			else if (proxy->offset >= 8) {
+				if (proxy->data[0] == 0 && proxy->data[1] == 90) 
+					proxy->next = ISOCKPROXY_CONNECTED;
+				else {
+					proxy->next = ISOCKPROXY_FAILED;
+					proxy->errorc = 21;
+				}
+			}
+		}
+	}	else
+	if (proxy->type == ISOCKPROXY_TYPE_SOCKS5) {
+		if (proxy->next == ISOCKPROXY_RECVING1) {
+			retval = iproxy_recv(proxy, -1);
+			if (retval < 0) {
+				proxy->next = ISOCKPROXY_FAILED;
+				proxy->errorc = 31;
+			}
+			else if (proxy->offset >= 2) {
+				if (proxy->authen == 0) {
+					if (proxy->data[0] == 5 && proxy->data[1] == 0) {
+						memcpy(proxy->data, proxy->data + 402, 
+							*(short*)(proxy->data + 400));
+						proxy->totald = *(short*)(proxy->data + 400);
+						proxy->next = ISOCKPROXY_SENDING3;
+					}	else {
+						proxy->next = ISOCKPROXY_FAILED; 
+						proxy->errorc = 32;
+					}
+				}	else {
+					if (proxy->data[0] == 5 && proxy->data[1] == 0) {
+						memcpy(proxy->data, proxy->data + 402,
+							*(short*)(proxy->data + 400));
+						proxy->totald = *(short*)(proxy->data + 400);
+						proxy->next = ISOCKPROXY_SENDING3;
+					}	else
+					if (proxy->data[0] == 5 && proxy->data[1] == 2) {
+						memcpy(proxy->data, proxy->data + 702, 
+							*(short*)(proxy->data + 700));
+						proxy->totald = *(short*)(proxy->data + 700);
+						proxy->next = ISOCKPROXY_SENDING2;
+					}	else {
+						proxy->next = ISOCKPROXY_FAILED;
+						proxy->errorc = 33;
+					}
+				}
+				proxy->offset = 0;
+			}
+		}
+		if (proxy->next == ISOCKPROXY_SENDING2) {
+			if (iproxy_send(proxy) < 0) {
+				proxy->next = ISOCKPROXY_FAILED;
+				proxy->errorc = 40;
+			}
+			else if (proxy->offset >= proxy->totald) {
+				proxy->next = ISOCKPROXY_RECVING2;
+				proxy->offset = 0;
+			}
+		}
+		if (proxy->next == ISOCKPROXY_RECVING2) {
+			if (iproxy_recv(proxy, -1) < 0) {
+				proxy->next = ISOCKPROXY_FAILED;
+				proxy->errorc = 41;
+			}
+			else if (proxy->offset >= 2) {
+				if (proxy->data[1] != 0) {
+					proxy->next = ISOCKPROXY_FAILED;
+					proxy->errorc = 42;
+				}
+				else {
+					memcpy(proxy->data, proxy->data + 402, 
+						*(short*)(proxy->data + 400));
+					proxy->totald = *(short*)(proxy->data + 400);
+					proxy->next = ISOCKPROXY_SENDING3;
+					proxy->offset = 0;
+				}
+			}
+		}
+		if (proxy->next == ISOCKPROXY_SENDING3) {
+			if (iproxy_send(proxy) < 0) {
+				proxy->next = ISOCKPROXY_FAILED;
+				proxy->errorc = 50;
+			}
+			else if (proxy->offset >= proxy->totald) {
+				proxy->next = ISOCKPROXY_RECVING3;
+				proxy->offset = 0;
+			}
+		}
+		if (proxy->next == ISOCKPROXY_RECVING3) {
+			retval = iproxy_recv(proxy, 10);
+			if (retval < 0) {
+				proxy->next = ISOCKPROXY_FAILED;
+				proxy->errorc = 51;
+			}
+			else if (proxy->offset >= 10) {
+				if (proxy->data[0] == 5 && proxy->data[1] == 0) 
+					proxy->next = ISOCKPROXY_CONNECTED;
+				else proxy->next = ISOCKPROXY_FAILED, proxy->errorc = 52;
+			}
+		}
+	}	else {
+		proxy->errorc = 100;
+		proxy->next = ISOCKPROXY_FAILED;
+	}
+
+	if (proxy->next == ISOCKPROXY_FAILED) return -1;
+	if (proxy->next == ISOCKPROXY_CONNECTED) return 1;
+
+	return 0;
+}
+
+
+
+
+//---------------------------------------------------------------------
 // CSV Reader/Writer
 //---------------------------------------------------------------------
 struct iCsvReader

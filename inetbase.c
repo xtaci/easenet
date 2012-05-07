@@ -1233,11 +1233,13 @@ int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 	long len = sizeof(long);
 	int retval;
 	if (rcvbuf_size > 0) {
-		retval = isetsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&rcvbuf_size, len);
+		retval = isetsockopt(sock, SOL_SOCKET, SO_RCVBUF, 
+			(char*)&rcvbuf_size, len);
 		if (retval < 0) return retval;
 	}
 	if (sndbuf_size > 0) {
-		retval = isetsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char*)&sndbuf_size, len);
+		retval = isetsockopt(sock, SOL_SOCKET, SO_SNDBUF, 
+			(char*)&sndbuf_size, len);
 		if (retval < 0) return retval;
 	}
 	return 0;
@@ -3117,7 +3119,8 @@ int iposix_event_wait(iEventPosix *event, unsigned long millisec)
 			while (event->signal == 0) {
 				IUINT32 clock = iclock();
 				IUINT32 last;
-				iposix_cond_sleep_cs_time(event->cond, &event->mutex, millisec);
+				iposix_cond_sleep_cs_time(event->cond, 
+					&event->mutex, millisec);
 				last = (iclock() - clock);
 				if (millisec <= (unsigned long)last) {
 					break;

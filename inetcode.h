@@ -122,7 +122,7 @@ struct ITMCLIENT
 #define ITMH_EDWORDMSB		9		// 头部标志：4字节MSB（不包含自己）
 #define ITMH_EBYTELSB		10		// 头部标志：单字节LSB（不包含自己）
 #define ITMH_EBYTEMSB		11		// 头部标志：单字节MSB（不包含自己）
-#define ITMH_DWORDMASK		12		// 头部标志：4字节LSB（包含自己和掩码）
+#define ITMH_DWORDMASK		12		// 头部标志：4字节LSB（自己和掩码）
 #endif
 
 #define ITMC_STATE_CLOSED		0	// 状态：关闭
@@ -203,6 +203,47 @@ long itms_next(struct ITMHOST *host, long hid);
 
 long itms_read(struct ITMHOST *host, int *msg, long *wparam, long *lparam,
 	void *data, long size);
+
+
+
+//---------------------------------------------------------------------
+// PROXY
+//---------------------------------------------------------------------
+struct ISOCKPROXY
+{
+	int type;					// http? sock4? sock5?
+	int next;					// state
+	int socket;					// socket
+	int offset;					// data pointer offset
+	int totald;					// total send
+	int authen;					// wheather auth
+	int errorc;					// error code
+	int block;					// is blocking
+	struct sockaddr remote;		// remote address
+	struct sockaddr proxyd;		// proxy address
+	char data[1024];			// buffer
+};
+
+
+#define ISOCKPROXY_TYPE_NONE	0		// 类型：无代理服务器
+#define ISOCKPROXY_TYPE_HTTP	1		// 类型：HTTP代理
+#define ISOCKPROXY_TYPE_SOCKS4	2		// 类型：SOCKS4代理
+#define ISOCKPROXY_TYPE_SOCKS5	3		// 类型：SOCKS5代理
+
+///
+/// 初始化连接数据 ISOCKPROXY
+/// 选择 type有：ISOCKPROXY_TYPE_NONE, ISOCKPROXY_TYPE_HTTP, 
+//  ISOCKPROXY_TYPE_SOCKS4, ISOCKPROXY_TYPE_SOCKS5
+/// 
+int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type, 
+	const struct sockaddr *remote, const struct sockaddr *proxyd, 
+	const char *user, const char *pass, int mode);
+
+///
+/// 处理请求
+/// 成功返回1，失败返回<0，阻塞返回0
+///
+int iproxy_process(struct ISOCKPROXY *proxy);
 
 
 //---------------------------------------------------------------------

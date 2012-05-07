@@ -969,7 +969,7 @@ static struct IMSPAGE *ims_page_cache_get(struct IMSTREAM *s)
 {
 	struct IMSPAGE *page;
 	ilong i;
-	if (s->lrusize <= 0) {
+	if (s->lrusize == 0) {
 		for (i = 0; i < IMSPAGE_LRU_SIZE; i++) {
 			page = ims_page_new(s);
 			iqueue_add_tail(&page->head, &s->lru);
@@ -1164,8 +1164,8 @@ char* istrcasestr(char* s1, char* s2)
 int istrncasecmp(char* s1, char* s2, size_t num)
 {
 	char c1, c2;
-	if(!s1|| !s2 || num<=0) return 0;
-	assert(s1 && s2 && num>0);
+	if(!s1|| !s2 || num == 0) return 0;
+	assert(s1 && s2 && num > 0);
 	while(num > 0){
 		c1 = ITOUPPER(*s1);
 		c2 = ITOUPPER(*s2);
