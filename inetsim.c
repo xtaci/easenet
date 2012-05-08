@@ -23,7 +23,7 @@
 // 单向链路：初始化
 //---------------------------------------------------------------------
 void isim_transfer_init(iSimTransfer *trans, long rtt, long lost, long amb, 
-		long limit)
+		long limit, int mode)
 {
 	assert(trans);
 	trans->rtt = rtt;
@@ -35,6 +35,7 @@ void isim_transfer_init(iSimTransfer *trans, long rtt, long lost, long amb,
 	trans->current = 0;
 	trans->cnt_send = 0;
 	trans->cnt_drop = 0;
+	trans->mode = mode;
 	iqueue_init(&trans->head);
 }
 
@@ -133,6 +134,9 @@ long isim_transfer_send(iSimTransfer *trans, const void *data, long size)
 		iSimPacket *node = iqueue_entry(p, iSimPacket, head);
 		if (node->timestamp < packet->timestamp) break;
 	}
+	
+	// 如果是顺序模式
+	if (trans->mode != 0) p = trans->head.prev;
 
 	iqueue_add(&packet->head, p);
 	trans->size++;
@@ -189,17 +193,18 @@ long isim_transfer_recv(iSimTransfer *trans, void *data, long maxsize)
 // lost  - 丢包率百分比 (0 - 100)
 // amb   - 时间振幅百分比 (0 - 100)
 // limit - 最多包缓存数量
+// mode  - 0(后发包会先到) 1(后发包必然后到达)
 // 到达时间  = 当前时间 + rtt * 0.5 + rtt * (amb * 0.01) * random(-0.5, 0.5)
 // 公网极速  = rtt( 60), lost( 5), amb(30), limit(1000)
 // 公网快速  = rtt(120), lost(10), amb(40), limit(1000)
 // 公网普通  = rtt(200), lost(10), amb(50), limit(1000)
 // 公网慢速  = rtt(800), lost(20), amb(60), limit(1000)
 //---------------------------------------------------------------------
-void isim_init(iSimNet *simnet, long rtt, long lost, long amb, long limit)
+void isim_init(iSimNet *simnet, long rtt, long lost, long amb, long limit, int mode)
 {
 	assert(simnet);
-	isim_transfer_init(&simnet->t1, rtt >> 1, lost, amb, limit);
-	isim_transfer_init(&simnet->t2, rtt >> 1, lost, amb, limit);
+	isim_transfer_init(&simnet->t1, rtt >> 1, lost, amb, limit, mode);
+	isim_transfer_init(&simnet->t2, rtt >> 1, lost, amb, limit, mode);
 	simnet->p1.t1 = &simnet->t1;
 	simnet->p1.t2 = &simnet->t2;
 	simnet->p2.t1 = &simnet->t2;

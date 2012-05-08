@@ -37,6 +37,11 @@ struct IHTTPSOCK
 	IINT64 blocksize;
 	IINT64 received;
 	IINT64 conntime;
+	int proxy_type;
+	char *proxy_user;
+	char *proxy_pass;
+	struct ISOCKPROXY *proxy;
+	struct sockaddr proxyd;
 	struct sockaddr remote;
 	struct IMSTREAM sendmsg;
 	struct IMSTREAM recvmsg;
@@ -66,6 +71,10 @@ int ihttpsock_connect(IHTTPSOCK *httpsock, const struct sockaddr *remote);
 
 // close connection
 void ihttpsock_close(IHTTPSOCK *httpsock);
+
+// set proxy, call it befor calling ihttpsock_connect
+int ihttpsock_proxy(IHTTPSOCK *httpsock, int type, 
+	const struct sockaddr *addr, const char *user, const char *pass);
 
 // assign to a connected socket
 int ihttpsock_assign(IHTTPSOCK *httpsock, int sock);
@@ -150,11 +159,12 @@ int ihttpsock_block_gets(IHTTPSOCK *httpsock, ivalue_t *text);
 #define IHTTP_RESULT_HTTP_ERROR		4
 #define IHTTP_RESULT_HTTP_UNSUPPORT	5
 #define IHTTP_RESULT_HTTP_OUTRANGE  6
-#define IHTTP_RESULT_ABORTED		7
-#define IHTTP_RESULT_SOCK_ERROR		8
-#define IHTTP_RESULT_INVALID_ADDR	9
-#define IHTTP_RESULT_CONNECT_FAIL	10
-#define IHTTP_RESULT_DISCONNECTED	11
+#define IHTTP_RESULT_HTTP_UNAUTH	7
+#define IHTTP_RESULT_ABORTED		8
+#define IHTTP_RESULT_SOCK_ERROR		9
+#define IHTTP_RESULT_INVALID_ADDR	10
+#define IHTTP_RESULT_CONNECT_FAIL	11
+#define IHTTP_RESULT_DISCONNECTED	12
 
 
 
@@ -175,6 +185,9 @@ struct IHTTPLIB
 	int keepalive;
 	int partial;
 	int isredirect;
+	int proxy_type;
+	char *proxy_user;
+	char *proxy_pass;
 	IINT64 clength;
 	IINT64 chunksize;
 	IINT64 datasize;
@@ -189,6 +202,7 @@ struct IHTTPLIB
 	ivalue_t rheader;
 	ivalue_t redirect;
 	ivalue_t buffer;
+	struct sockaddr proxyd;
 };
 
 typedef struct IHTTPLIB IHTTPLIB;
@@ -209,6 +223,9 @@ int ihttplib_open(IHTTPLIB *http, const char *HOST);
 
 int ihttplib_close(IHTTPLIB *http);
 
+int ihttplib_proxy(IHTTPLIB *http, int type, const char *proxy, 
+	int port, const char *user, const char *pass);
+
 int ihttplib_update(IHTTPLIB *http, int wait);
 
 void ihttplib_header_reset(IHTTPLIB *http);
@@ -225,6 +242,7 @@ long ihttplib_send(IHTTPLIB *http, const void *data, long size);
 #define IHTTP_RECV_CLOSED	-3
 #define IHTTP_RECV_NOTFIND	-4
 #define IHTTP_RECV_ERROR	-5
+#define IHTTP_RECV_TIMEOUT	-6
 
 // returns IHTTP_RECV_AGAIN for block
 // returns IHTTP_RECV_DONE for okay
@@ -283,9 +301,12 @@ extern "C" {
 // open a url
 // POST mode: size >= 0 && data != NULL 
 // GET mode: size < 0 || data == NULL
-// proxy format: 218.107.xx.xx:80 (http proxy only)
+// proxy format: a string: (type, addr, port [,user, passwd]) joined by "\n"
+// NULL for direct link. 'type' can be one of 'http', 'socks4' and 'socks5', 
+// eg: type=http, proxyaddr=10.0.1.1, port=8080 -> "http\n10.0.1.1\n8080"
+// eg: "socks5\n10.0.0.1\n80\nuser1\npass1" "socks4\n127.0.0.1\n1081"
 IURLD *ineturl_open(const char *URL, const void *data, long size, 
-	const char *header, const char *proxy);
+	const char *header, const char *proxy, int *errcode);
 
 void ineturl_close(IURLD *url);
 
@@ -321,11 +342,11 @@ extern "C" {
 int _demo_download(const char *URL, const char *filename);
 
 // wget into a string
-// returns IHTTP_RECV_DONE for okay
+// returns >= 0 for okay, below zero for errors:
 // returns IHTTP_RECV_CLOSED for closed
 // returns IHTTP_RECV_NOTFIND for not find
 // returns IHTTP_RECV_ERROR for http error
-int _demo_wget(const char *URL, ivalue_t *string);
+int _demo_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time);
 
 
 #ifdef __cplusplus

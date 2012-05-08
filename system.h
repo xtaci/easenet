@@ -734,14 +734,17 @@ public:
 	HttpRequest() { _urld = NULL; }
 	virtual ~HttpRequest() { close(); }
 
-	// open a url
+	// 打开一个URL
 	// POST mode: size >= 0 && data != NULL 
 	// GET mode: size < 0 || data == NULL
-	// proxy format: 218.107.xx.xx:80 (http proxy only)
+	// proxy format: a string: (type, addr, port [,user, passwd]) join by "\n"
+	// NULL for direct link. 'type' can be one of 'http', 'socks4' and 'socks5', 
+	// eg: type=http, proxyaddr=10.0.1.1, port=8080 -> "http\n10.0.1.1\n8080"
+	// eg: "socks5\n10.0.0.1\n80\nuser1\npass1" "socks4\n127.0.0.1\n1081"
 	bool open(const char *URL, const void *data = NULL, long size = -1, 
-		const char *header = NULL, const char *proxy = NULL) {
+		const char *header = NULL, const char *proxy = NULL, int *errcode = NULL) {
 		close();
-		_urld = ineturl_open(URL, data, size, header, proxy); 
+		_urld = ineturl_open(URL, data, size, header, proxy, errcode); 
 		return (_urld == NULL)? false : true;
 	}
 
@@ -775,6 +778,21 @@ public:
 		if (_urld) {
 			ineturl_flush(_urld);
 		}
+	}
+
+	// 请求一个远程 URL，将结果反馈给 content
+	// returns >= 0 for okay, below zero for errors:
+	// returns IHTTP_RECV_CLOSED for closed
+	// returns IHTTP_RECV_NOTFIND for not find
+	// returns IHTTP_RECV_ERROR for http error
+	static inline int wget(const char *url, std::string &content, const char *proxy = NULL, int timeout = 8000) {
+		ivalue_t ctx;
+		int hr;
+		it_init(&ctx, ITYPE_STR);
+		hr = _demo_wget(url, &ctx, proxy, timeout);
+		content.assign(it_str(&ctx), it_size(&ctx));
+		it_destroy(&ctx);
+		return hr;
 	}
 
 protected:

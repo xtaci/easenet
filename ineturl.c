@@ -20,6 +20,7 @@ IHTTPSOCK *ihttpsock_new(struct IMEMNODE *nodes)
 	IHTTPSOCK *httpsock;
 	httpsock = (IHTTPSOCK*)ikmem_malloc(sizeof(IHTTPSOCK));
 	assert(httpsock);
+	if (httpsock == NULL) return NULL;
 	httpsock->state = IHTTPSOCK_STATE_CLOSED;
 	httpsock->sock = -1;
 	httpsock->bufsize = 0x4000;
@@ -27,8 +28,17 @@ IHTTPSOCK *ihttpsock_new(struct IMEMNODE *nodes)
 	httpsock->blocksize = -1;
 	httpsock->endless = 0;
 	httpsock->conntime = 0;
+	httpsock->proxy = (struct ISOCKPROXY*)
+		ikmem_malloc(sizeof(struct ISOCKPROXY));
+	if (httpsock->proxy == NULL) {
+		ikmem_free(httpsock);
+		return NULL;
+	}
 	ims_init(&httpsock->sendmsg, nodes, 0, 0);
 	ims_init(&httpsock->recvmsg, nodes, 0, 0);
+	httpsock->proxy_type = ISOCKPROXY_TYPE_NONE;
+	httpsock->proxy_user = NULL;
+	httpsock->proxy_pass = NULL;
 	return httpsock;
 }
 
@@ -38,12 +48,19 @@ void ihttpsock_delete(IHTTPSOCK *httpsock)
 	assert(httpsock);
 	if (httpsock->sock >= 0) iclose(httpsock->sock);
 	if (httpsock->buffer) ikmem_free(httpsock->buffer);
+	if (httpsock->proxy) ikmem_free(httpsock->proxy);
 	httpsock->sock = -1;
 	httpsock->state = -1;
 	httpsock->bufsize = -1;
 	httpsock->buffer = NULL;
+	httpsock->proxy = NULL;
 	ims_destroy(&httpsock->sendmsg);
 	ims_destroy(&httpsock->recvmsg);
+	if (httpsock->proxy_user) ikmem_free(httpsock->proxy_user);
+	if (httpsock->proxy_pass) ikmem_free(httpsock->proxy_pass);
+	httpsock->proxy_user = NULL;
+	httpsock->proxy_pass = NULL;
+	httpsock->proxy_type = ISOCKPROXY_TYPE_NONE;
 	ikmem_free(httpsock);
 }
 
@@ -64,9 +81,46 @@ int ihttpsock_connect(IHTTPSOCK *httpsock, const struct sockaddr *remote)
 	if (httpsock->sock < 0) return -2;
 	ienable(httpsock->sock, ISOCK_NOBLOCK);
 	ienable(httpsock->sock, ISOCK_REUSEADDR);
+
+#if 0
 	iconnect(httpsock->sock, remote);
+#else
+	iproxy_init(httpsock->proxy, httpsock->sock, httpsock->proxy_type,
+		remote, &httpsock->proxyd, httpsock->proxy_user, 
+		httpsock->proxy_pass, 0);
+#endif
+
 	httpsock->remote = *remote;
 	httpsock->state = IHTTPSOCK_STATE_CONNECTING;
+	return 0;
+}
+
+// set proxy, call it befor calling ihttpsock_connect
+// set proxy, call it befor calling ihttpsock_connect
+int ihttpsock_proxy(IHTTPSOCK *httpsock, int type, 
+	const struct sockaddr *addr, const char *user, const char *pass)
+{
+	if (httpsock->proxy_user) ikmem_free(httpsock->proxy_user);
+	if (httpsock->proxy_pass) ikmem_free(httpsock->proxy_pass);
+	httpsock->proxy_user = NULL;
+	httpsock->proxy_pass = NULL;
+	httpsock->proxy_type = ISOCKPROXY_TYPE_NONE;
+	if (type == ISOCKPROXY_TYPE_NONE) return 0;
+	if (addr == NULL) return 0;
+	if (user) {
+		int len = strlen(user);
+		httpsock->proxy_user = ikmem_malloc(len + 1);
+		if (httpsock->proxy_user == NULL) return -1;
+		memcpy(httpsock->proxy_user, user, len + 1);
+	}
+	if (pass) {
+		int len = strlen(pass);
+		httpsock->proxy_pass = ikmem_malloc(len + 1);
+		if (httpsock->proxy_pass == NULL) return -2;
+		memcpy(httpsock->proxy_pass, pass, len + 1);
+	}
+	httpsock->proxy_type = type;
+	httpsock->proxyd = *addr;
 	return 0;
 }
 
@@ -103,6 +157,7 @@ void ihttpsock_close(IHTTPSOCK *httpsock)
 static void ihttpsock_try_connect(IHTTPSOCK *httpsock)
 {
 	if (httpsock->state == IHTTPSOCK_STATE_CONNECTING) {
+	#if 0
 		int event = ISOCK_ESEND | ISOCK_ERROR;
 		event = ipollfd(httpsock->sock, event, 0);
 		if (event & ISOCK_ERROR) {
@@ -112,6 +167,16 @@ static void ihttpsock_try_connect(IHTTPSOCK *httpsock)
 			httpsock->state = IHTTPSOCK_STATE_CONNECTED;
 			httpsock->conntime = iclock64();
 		}
+	#else
+		int hr = iproxy_process(httpsock->proxy);
+		if (hr > 0) {
+			httpsock->state = IHTTPSOCK_STATE_CONNECTED;
+			httpsock->conntime = iclock64();
+		}
+		else if (hr < 0) {
+			ihttpsock_close(httpsock);
+		}
+	#endif
 	}
 }
 
@@ -384,6 +449,9 @@ IHTTPLIB *ihttplib_new(void)
 	}
 
 	http->state = IHTTP_STATE_STOP;
+	http->proxy_type = ISOCKPROXY_TYPE_NONE;
+	http->proxy_user = NULL;
+	http->proxy_pass = NULL;
 
 	return http;
 }
@@ -402,6 +470,11 @@ void ihttplib_delete(IHTTPLIB *http)
 	it_destroy(&http->ctype);
 	it_destroy(&http->redirect);
 	it_destroy(&http->buffer);
+	if (http->proxy_user) ikmem_free(http->proxy_user);
+	if (http->proxy_pass) ikmem_free(http->proxy_pass);
+	http->proxy_user = NULL;
+	http->proxy_pass = NULL;
+	http->proxy_type = ISOCKPROXY_TYPE_NONE;
 	ikmem_free(http);
 }
 
@@ -473,16 +546,84 @@ int ihttplib_close(IHTTPLIB *http)
 	return 0;
 }
 
+int ihttplib_proxy(IHTTPLIB *http, int type, const char *addr, 
+	int port, const char *user, const char *pass)
+{
+	int ret;
+
+	if (http->proxy_user) ikmem_free(http->proxy_user);
+	if (http->proxy_pass) ikmem_free(http->proxy_pass);
+	http->proxy_user = NULL;
+	http->proxy_pass = NULL;
+
+	http->proxy_type = ISOCKPROXY_TYPE_NONE;
+
+	if (type == ISOCKPROXY_TYPE_NONE || addr == NULL) {
+		return ihttpsock_proxy(http->sock, ISOCKPROXY_TYPE_NONE,
+			NULL, NULL, NULL);
+	}
+
+	if (user) {
+		int len = strlen(user);
+		http->proxy_user = ikmem_malloc(len + 1);
+		if (http->proxy_user == NULL) return -1;
+		memcpy(http->proxy_user, user, len + 1);
+	}
+
+	if (pass) {
+		int len = strlen(pass);
+		http->proxy_pass = ikmem_malloc(len + 1);
+		if (http->proxy_pass == NULL) return -2;
+		memcpy(http->proxy_pass, pass, len + 1);
+	}
+
+	memset(&http->proxyd, 0, sizeof(http->proxyd));
+	ret = isockaddr_set_ip_text(&http->proxyd, addr);
+	if (ret < 0) return -3;
+
+	isockaddr_set_port(&http->proxyd, port);
+	isockaddr_set_family(&http->proxyd, AF_INET);
+
+	ret = ihttpsock_proxy(http->sock, type, &http->proxyd,
+		http->proxy_user, http->proxy_pass);
+
+	if (ret != 0) return -4;
+
+	http->proxy_type = type;
+
+	return 0;
+}
+
 int ihttplib_update(IHTTPLIB *http, int wait)
 {
-	int event = ISOCK_ERECV | ISOCK_ERROR;
 	assert(http);
 	if (wait > 0) {
+		int event = ISOCK_ERECV | ISOCK_ERROR;
 		ihttpsock_update(http->sock);
-		if (ihttpsock_dsize(http->sock) > 0) event |= ISOCK_ESEND;
-		if (http->sock->state == IHTTPSOCK_STATE_CONNECTING) 
+		if (ihttpsock_dsize(http->sock) > 0)
 			event |= ISOCK_ESEND;
-		ihttpsock_poll(http->sock, event, wait);
+		if (http->sock->proxy_type == ISOCKPROXY_TYPE_NONE) {
+			if (http->sock->state == IHTTPSOCK_STATE_CONNECTING) 
+				event |= ISOCK_ESEND;
+			if (http->sock->state != IHTTPSOCK_STATE_CLOSED)
+				ihttpsock_poll(http->sock, event, wait);
+		}	else {
+			if (http->sock->state == IHTTPSOCK_STATE_CONNECTING) {
+				int sleepcs = 1;
+				if (wait < 5) sleepcs = 1;
+				else if (wait < 20) sleepcs = 2;
+				else if (wait < 50) sleepcs = 3;
+				else if (wait < 60) sleepcs = 4;
+				else if (wait < 70) sleepcs = 5;
+				else if (wait < 80) sleepcs = 6;
+				else if (wait < 90) sleepcs = 7;
+				else sleepcs = 10;
+				isleep(sleepcs);
+			}	
+			else if (http->sock->state != IHTTPSOCK_STATE_CLOSED) {
+				ihttpsock_poll(http->sock, event, wait);
+			}
+		}
 	}
 	ihttpsock_update(http->sock);
 	return http->state;
@@ -536,6 +677,7 @@ int ihttplib_read_header(IHTTPLIB *http)
 	it_strstrip(&http->line, &delim);
 
 	it_strcat(&http->rheader, &http->line);
+	it_strcatc(&http->rheader, "\r\n", -1);
 
 	it_strsub(&http->line, &name, 0, 7);
 	retval = 1;
@@ -580,6 +722,10 @@ int ihttplib_read_header(IHTTPLIB *http)
 			it_strsub(&http->line, &help, 7, 8);
 			http->httpver = istrtol(it_str(&help), NULL, 0);
 			http->isredirect = 0;
+		}
+		else if (it_stricmpc(&name, "407", 0) == 0) {
+			http->result = IHTTP_RESULT_HTTP_UNAUTH;
+			retval = -2;
 		}
 		else {
 			http->result = IHTTP_RESULT_HTTP_ERROR;
@@ -763,6 +909,7 @@ long ihttplib_read_chunked(IHTTPLIB *http, void *data, long size)
 
 	return IHTTP_RECV_AGAIN;
 }
+
 
 // receive data
 // returns IHTTP_RECV_AGAIN for block
@@ -1046,20 +1193,117 @@ int ineturl_split(const char *URL, ivalue_t *protocol,
 // open a url
 //---------------------------------------------------------------------
 
+static char *ineturl_strdup(const char *src)
+{
+	char *ptr = NULL;
+	if (src == NULL) {
+		ptr = (char*)ikmem_malloc(8);
+		assert(ptr);
+		ptr[0] = 0;
+	}	
+	else {
+		int len = strlen(src) + 1;
+		ptr = (char*)ikmem_malloc(len);
+		assert(ptr);
+		memcpy(ptr, src, len);
+	}
+	return ptr;
+}
+
+// parse proxy description
+int ineturl_proxy_parse(const char *proxy, char **addr, int *port, 
+	char **user, char **pass)
+{
+	int proxy_type = 0;
+
+	addr[0] = NULL;
+	port[0] = 0;
+	user[0] = NULL;
+	pass[0] = NULL;
+
+	if (proxy == NULL) {
+		return ISOCKPROXY_TYPE_NONE;
+	}	
+	else if (proxy[0] == 0) {
+		return ISOCKPROXY_TYPE_NONE;
+	}
+	else {
+		istring_list_t *slist = istring_list_split(proxy, -1, "\n", 1);
+		ivalue_t *desc_type;
+		ivalue_t *desc_addr;
+		ivalue_t *desc_port;
+		if (slist->count < 3) {
+			istring_list_delete(slist);
+			return -1;
+		}
+		desc_type = istring_list_get(slist, 0);
+		desc_addr = istring_list_get(slist, 1);
+		desc_port = istring_list_get(slist, 2);
+		if (it_stricmpc(desc_type, "HTTP", 0) == 0) {
+			proxy_type = ISOCKPROXY_TYPE_HTTP;
+		}
+		else if (it_stricmpc(desc_type, "SOCKS", 0) == 0) {
+			proxy_type = ISOCKPROXY_TYPE_SOCKS5;
+		}
+		else if (it_stricmpc(desc_type, "SOCKS4", 0) == 0) {
+			proxy_type = ISOCKPROXY_TYPE_SOCKS4;
+		}
+		else if (it_stricmpc(desc_type, "SOCKS5", 0) == 0) {
+			proxy_type = ISOCKPROXY_TYPE_SOCKS5;
+		}
+		else if (it_stricmpc(desc_type, "SOCK4", 0) == 0) {
+			proxy_type = ISOCKPROXY_TYPE_SOCKS4;
+		}
+		else if (it_stricmpc(desc_type, "SOCK5", 0) == 0) {
+			proxy_type = ISOCKPROXY_TYPE_SOCKS5;
+		}
+		else {
+			istring_list_delete(slist);
+			return -2;
+		}
+		addr[0] = ineturl_strdup(it_str(desc_addr));
+		port[0] = istrtol(it_str(desc_port), NULL, 0);
+		if (slist->count == 4) {
+			user[0] = ineturl_strdup(it_str(istring_list_get(slist, 3)));
+			pass[0] = (char*)ikmem_malloc(8);
+			assert(pass[0]);
+			pass[0][0] = 0;
+		}
+		else if (slist->count >= 5) {
+			user[0] = ineturl_strdup(it_str(istring_list_get(slist, 3)));
+			pass[0] = ineturl_strdup(it_str(istring_list_get(slist, 4)));
+		}
+		istring_list_delete(slist);
+	}
+	return proxy_type;
+}
+
+
 // open a url
 // POST mode: size >= 0 && data != NULL 
 // GET mode: size < 0 || data == NULL
-// proxy format: 218.107.xx.xx:80 (http proxy only)
+// proxy format: a string: (type, addr, port [,user, passwd]) joined by "\n"
+// NULL for direct link. 'type' can be one of 'http', 'socks4' and 'socks5', 
+// eg: type=http, proxyaddr=10.0.1.1, port=8080 -> "http\n10.0.1.1\n8080"
+// eg: "socks5\n10.0.0.1\n80\nuser1\npass1" "socks4\n127.0.0.1\n1081"
 IURLD *ineturl_open(const char *URL, const void *data, long size, 
-	const char *HEADER, const char *proxy)
+	const char *HEADER, const char *proxy, int *errcode)
 {
 	ivalue_t protocol, host, path, header;
 	IURLD *url;
+	char *proxy_addr = NULL;
+	char *proxy_pass = NULL;
+	char *proxy_user = NULL;
+	int proxy_type;
+	int proxy_port;
 	int method;
 	int retval;
 
 	url = (IURLD*)ikmem_malloc(sizeof(IURLD));
-	if (url == NULL) return NULL;
+	if (url == NULL) {
+		if (errcode) errcode[0] = -1;
+		return NULL;
+	}
 
 	it_init_str(&url->url, "", 0);
 	it_init_str(&url->host, "", 0);
@@ -1069,6 +1313,7 @@ IURLD *ineturl_open(const char *URL, const void *data, long size,
 
 	if (url->http == NULL) {
 		ineturl_close(url);
+		if (errcode) errcode[0] = -2;
 		return NULL;
 	}
 
@@ -1085,20 +1330,71 @@ IURLD *ineturl_open(const char *URL, const void *data, long size,
 		it_destroy(&host);
 		it_destroy(&path);
 		it_destroy(&header);
+		if (errcode) errcode[0] = -3;
 		return NULL;
 	}
 
 	it_cpy(&url->host, &host);
-	
-	if (proxy) {
-		it_strcpyc(&url->proxy, proxy, -1);
-		retval = ihttplib_open(url->http, proxy);
-		it_cpy(&url->http->host, &url->host);
-		it_strcpyc(&url->url, URL, -1);
-	}	else {
+
+	proxy_type = ineturl_proxy_parse(proxy, &proxy_addr, &proxy_port,
+		&proxy_user, &proxy_pass);
+
+	if (proxy_type < 0) {
+		ineturl_close(url);
+		it_destroy(&protocol);
+		it_destroy(&host);
+		it_destroy(&path);
+		it_destroy(&header);
+		if (proxy_addr) ikmem_free(proxy_addr);
+		if (proxy_user) ikmem_free(proxy_user);
+		if (proxy_pass) ikmem_free(proxy_pass);
+		if (errcode) errcode[0] = -4;
+		return NULL;
+	}
+
+	if (proxy_type != ISOCKPROXY_TYPE_HTTP) {
+		if (proxy_type != ISOCKPROXY_TYPE_NONE) {
+			ihttplib_proxy(url->http, proxy_type, proxy_addr, proxy_port,
+				proxy_user, proxy_pass);
+		}
 		retval = ihttplib_open(url->http, it_str(&url->host));
 		it_cpy(&url->url, &path);
+	}	else {
+		if (proxy_user) {
+			ivalue_t auth, base64;
+			int size;
+			it_init(&auth, ITYPE_STR);
+			it_init(&base64, ITYPE_STR);
+			it_strcatc(&auth, proxy_user, -1);
+			it_strcatc(&auth, ":", -1);
+			it_strcatc(&auth, proxy_pass, -1);
+			size = ibase64_encode(NULL, it_size(&auth), NULL);
+			it_sresize(&base64, size);
+			ibase64_encode(it_str(&auth), it_size(&base64), it_str(&base64));
+			it_sresize(&base64, strlen(it_str(&base64)));
+			it_strcatc(&header, "Proxy-Authorization: Basic ", -1);
+			it_strcatc(&header, it_str(&base64), -1);
+			it_strcatc(&header, "\r\n", -1);
+			it_destroy(&base64);
+			it_destroy(&auth);
+		}
+		it_strcpyc(&url->proxy, proxy_addr, -1);
+		if (proxy_port != 80) {
+			char port[32];
+			iltoa(proxy_port, port, 10);
+			it_strcatc(&url->proxy, ":", -1);
+			it_strcatc(&url->proxy, port, -1);
+		}
+		retval = ihttplib_open(url->http, it_str(&url->proxy));
+		it_cpy(&url->http->host, &url->host);
+		it_strcpyc(&url->url, URL, -1);
 	}
+
+	if (proxy_addr) ikmem_free(proxy_addr);
+	if (proxy_user) ikmem_free(proxy_user);
+	if (proxy_pass) ikmem_free(proxy_pass);
+
+	proxy_addr = proxy_user = proxy_pass = NULL;
 
 	if (retval != 0) {
 		ineturl_close(url);
@@ -1106,6 +1402,7 @@ IURLD *ineturl_open(const char *URL, const void *data, long size,
 		it_destroy(&host);
 		it_destroy(&path);
 		it_destroy(&header);
+		if (errcode) errcode[0] = -5;
 		return NULL;
 	}
 	
@@ -1115,7 +1412,7 @@ IURLD *ineturl_open(const char *URL, const void *data, long size,
 		method = IHTTP_METHOD_GET;
 	}
 
-	it_strcpyc(&header, "Connection: Close\r\n", -1);
+	it_strcatc(&header, "Connection: Close\r\n", -1);
 
 	if (HEADER) {
 		it_strcatc(&header, HEADER, -1);
@@ -1134,6 +1431,7 @@ IURLD *ineturl_open(const char *URL, const void *data, long size,
 	it_destroy(&header);
 
 	url->done = 0;
+	if (errcode) errcode[0] = 0;
 
 	return url;
 }
@@ -1247,7 +1545,7 @@ int _demo_download(const char *URL, const char *filename)
 	IURLD *url;
 	FILE *fp;
 
-	url = ineturl_open(URL, NULL, -1, NULL, NULL);
+	url = ineturl_open(URL, NULL, -1, NULL, NULL, NULL);
 
 	if (url == NULL) return -1;
 
@@ -1256,7 +1554,7 @@ int _demo_download(const char *URL, const char *filename)
 
 	for (size = 0; ; ) {
 		long retval;
-		retval = ineturl_read(url, buffer, 1024 * 1024, 1);
+		retval = ineturl_read(url, buffer, 1024 * 1024, 100);
 		if (retval > 0) {
 			size += retval;
 			fwrite(buffer, 1, retval, fp);
@@ -1269,18 +1567,90 @@ int _demo_download(const char *URL, const char *filename)
 			break;
 		}
 		else if (retval != IHTTP_RECV_AGAIN) {
-			if (retval == IHTTP_RECV_NOTFIND) 
+			if (retval == IHTTP_RECV_NOTFIND) {
 				printf("error: 404 page not find\n");
-			else 
+			}	else {
 				printf("error: %ld\n", retval);
+			}
 			break;
 			return -2;
 		}
+		isleep(1);
 	}
 	free(buffer);
 	fclose(fp);
 	ineturl_close(url);
 	return 0;
+}
+
+
+// wget into a string
+// returns >= 0 for okay, below zero for errors:
+// returns IHTTP_RECV_CLOSED for closed
+// returns IHTTP_RECV_NOTFIND for not find
+// returns IHTTP_RECV_ERROR for http error
+int _demo_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time)
+{
+	char *buffer;
+	IURLD *url;
+	int errcode;
+	IINT64 ts;
+	IINT64 to;
+	long size;
+	int done;
+	int hr;
+
+	ts = iclock64();
+	if (time <= 0) time = 20000;
+	to = ts + time;
+
+	url = ineturl_open(URL, NULL, -1, NULL, proxy, &errcode);
+	if (url == NULL) {
+		return -1000 + errcode;
+	}
+	
+	buffer = (char*)ikmem_malloc(8192);
+	if (buffer == NULL) {
+		ineturl_close(url);
+		return -2000;
+	}
+
+	for (size = 0, done = 0; ; ) {
+		long retval;
+		retval = ineturl_read(url, buffer, 8192, 20);
+		if (retval > 0) {
+			size += retval;
+			it_strcatc(ctx, buffer, retval);
+		}
+		else if (retval == IHTTP_RECV_DONE) {
+			hr = IHTTP_RECV_DONE;
+			break;
+		}
+		else if (retval != IHTTP_RECV_AGAIN) {
+			if (retval == IHTTP_RECV_NOTFIND) {
+				hr = IHTTP_RECV_NOTFIND;
+			}	
+			else if (retval == IHTTP_RECV_CLOSED) {
+				hr = IHTTP_RECV_CLOSED;
+			}
+			else {
+				hr = IHTTP_RECV_ERROR;
+			}
+			break;
+		}
+		ts = iclock64();
+		if (ts >= to) {
+			hr = IHTTP_RECV_TIMEOUT;
+			break;
+		}
+		isleep(1);
+	}
+
+	ikmem_free(buffer);
+	ineturl_close(url);
+
+	if (hr == IHTTP_RECV_DONE) return size;
+	return hr;
 }
 
 
