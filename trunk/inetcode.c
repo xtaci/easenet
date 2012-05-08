@@ -1180,10 +1180,9 @@ long itms_next(struct ITMHOST *host, long hid)
 #define ISOCKPROXY_RECVING3		7
 #define ISOCKPROXY_CONNECTED	10
 
-///
+
 /// 转换编码格式 iproxy_base64
 /// 成功返回长度
-///
 int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 {
 	const char base64[] = 
@@ -1211,10 +1210,8 @@ int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 };
 
 
-///
 /// 做一次POLL操作
-///
-int iproxy_poll(int sock, int event, long millisec)
+static int iproxy_poll(int sock, int event, long millisec)
 {
 	int retval = 0;
 
@@ -1292,11 +1289,8 @@ int iproxy_poll(int sock, int event, long millisec)
 	return retval;
 }
 
-
-///
 /// 返回错误码
-///
-int iproxy_errno(void)
+static int iproxy_errno(void)
 {
 	int retval;
 	#ifdef __unix
@@ -1307,11 +1301,8 @@ int iproxy_errno(void)
 	return retval;
 }
 
-
-///
 /// 发送数据
-///
-int iproxy_send(struct ISOCKPROXY *proxy)
+static int iproxy_send(struct ISOCKPROXY *proxy)
 {
 	int retval;
 
@@ -1331,11 +1322,8 @@ int iproxy_send(struct ISOCKPROXY *proxy)
 	return retval;
 }
 
-
-///
 /// 接收数据
-///
-int iproxy_recv(struct ISOCKPROXY *proxy, int max)
+static int iproxy_recv(struct ISOCKPROXY *proxy, int max)
 {
 	int retval;
 	int msize;

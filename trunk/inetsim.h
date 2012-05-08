@@ -118,6 +118,7 @@ struct ISIMTRANSFER
 	long rtt;						// 平均往返时间(120, 200, ..)
 	long lost;						// 丢包率百分比(0-100)
 	long amb;						// 延迟振幅百分比(0-100)
+	int mode;						// 模式0(会前后到达)1(顺序到达)
 	long cnt_send;					// 发送了多少个包
 	long cnt_drop;					// 丢失了多少个包
 };
@@ -155,7 +156,7 @@ extern "C" {
 
 // 单向链路：初始化
 void isim_transfer_init(iSimTransfer *trans, long rtt, long lost, long amb, 
-		long limit);
+		long limit, int mode);
 
 // 单向链路：销毁
 void isim_transfer_destroy(iSimTransfer *trans);
@@ -180,12 +181,13 @@ long isim_transfer_recv(iSimTransfer *trans, void *data, long maxsize);
 // lost  - 丢包率百分比 (0 - 100)
 // amb   - 时间振幅百分比 (0 - 100)
 // limit - 最多包缓存数量
+// mode  - 0(后发包会先到) 1(后发包必然后到达)
 // 到达时间  = 当前时间 + rtt * 0.5 + rtt * (amb * 0.01) * random(-0.5, 0.5)
 // 公网极速  = rtt( 60), lost( 5), amb(30), limit(1000)
 // 公网快速  = rtt(120), lost(10), amb(40), limit(1000)
 // 公网普通  = rtt(200), lost(10), amb(50), limit(1000)
 // 公网慢速  = rtt(800), lost(20), amb(60), limit(1000)
-void isim_init(iSimNet *simnet, long rtt, long lost, long amb, long limit);
+void isim_init(iSimNet *simnet, long rtt, long lost, long amb, long limit, int mode);
 
 // 删除网络模拟器
 void isim_destroy(iSimNet *simnet);
