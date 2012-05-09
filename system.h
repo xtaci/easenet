@@ -789,7 +789,7 @@ public:
 		ivalue_t ctx;
 		int hr;
 		it_init(&ctx, ITYPE_STR);
-		hr = _demo_wget(url, &ctx, proxy, timeout);
+		hr = _urllib_wget(url, &ctx, proxy, timeout);
 		content.assign(it_str(&ctx), it_size(&ctx));
 		it_destroy(&ctx);
 		return hr;

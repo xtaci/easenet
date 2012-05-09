@@ -438,7 +438,7 @@ IHTTPLIB *ihttplib_new(void)
 	it_init_str(&http->rheader, "", 0);
 	it_init_str(&http->line, "", 0);
 	it_init_str(&http->ctype, "", 0);
-	it_init_str(&http->redirect, "", 0);
+	it_init_str(&http->location, "", 0);
 	it_init_str(&http->buffer, "", 0);
 
 	http->sock = ihttpsock_new(NULL);
@@ -448,6 +448,7 @@ IHTTPLIB *ihttplib_new(void)
 		return NULL;
 	}
 
+	http->code = 0;
 	http->state = IHTTP_STATE_STOP;
 	http->proxy_type = ISOCKPROXY_TYPE_NONE;
 	http->proxy_user = NULL;
@@ -468,7 +469,7 @@ void ihttplib_delete(IHTTPLIB *http)
 	it_destroy(&http->rheader);
 	it_destroy(&http->line);
 	it_destroy(&http->ctype);
-	it_destroy(&http->redirect);
+	it_destroy(&http->location);
 	it_destroy(&http->buffer);
 	if (http->proxy_user) ikmem_free(http->proxy_user);
 	if (http->proxy_pass) ikmem_free(http->proxy_pass);
@@ -535,6 +536,7 @@ int ihttplib_open(IHTTPLIB *http, const char *HOST)
 	http->keepalive = 0;
 	http->nosize = 0;
 	http->partial = 0;
+	http->code = 0;
 
 	return 0;
 }
@@ -687,6 +689,7 @@ int ihttplib_read_header(IHTTPLIB *http)
 	if (it_stricmpc(&name, "HTTP/1.", 0) == 0) {
 		it_strsub(&http->line, &name, 9, 12);
 		it_strstrip(&name, &delim);
+		http->code = istrtol(it_str(&name), NULL, 0);
 		if (it_stricmpc(&name, "404", 0) == 0) {
 			http->result = IHTTP_RESULT_NOT_FIND;
 			retval = -2;
@@ -695,7 +698,8 @@ int ihttplib_read_header(IHTTPLIB *http)
 			http->result = IHTTP_RESULT_HTTP_OUTRANGE;
 			retval = -2;
 		}
-		else if (it_stricmpc(&name, "301", 0) == 0) {
+		else if (it_stricmpc(&name, "301", 0) == 0 || 
+			it_stricmpc(&name, "302", 0) == 0) {
 			http->chunked = 0;
 			http->clength = 0;
 			http->chunksize = 0;
@@ -803,6 +807,10 @@ int ihttplib_read_header(IHTTPLIB *http)
 				}	else {
 					http->keepalive = 0;
 				}
+			}
+			else if (it_stricmpc(&name, "Location", 0) == 0) {
+				it_cpy(&http->location, &help);
+				//printf("redirect: %s\n", it_str(&help));
 			}
 		}
 	}
@@ -1533,63 +1541,30 @@ void ineturl_flush(IURLD *url)
 }
 
 
+// check redirect
+int ineturl_location(IURLD *url, ivalue_t *location)
+{
+	assert(url);
+	if (url->http->code != 301 && url->http->code != 302) {
+		it_strcpyc(location, "", 0);
+		return 0;
+	}
+	it_cpy(location, &url->http->location);
+	return url->http->code;
+}
+
 
 
 //=====================================================================
 // TOOL AND DEMO
 //=====================================================================
-int _demo_download(const char *URL, const char *filename)
-{
-	char *buffer;
-	long size;
-	IURLD *url;
-	FILE *fp;
-
-	url = ineturl_open(URL, NULL, -1, NULL, NULL, NULL);
-
-	if (url == NULL) return -1;
-
-	fp = fopen(filename, "wb");
-	buffer = (char*)malloc(1024 * 1024);
-
-	for (size = 0; ; ) {
-		long retval;
-		retval = ineturl_read(url, buffer, 1024 * 1024, 100);
-		if (retval > 0) {
-			size += retval;
-			fwrite(buffer, 1, retval, fp);
-			printf("read: %ld/%ld (%ld%%)\n", size, 
-				(long)(url->http->clength),
-				(long)(size * 100 / url->http->clength));
-		}
-		else if (retval == IHTTP_RECV_DONE) {
-			printf("successful\n");
-			break;
-		}
-		else if (retval != IHTTP_RECV_AGAIN) {
-			if (retval == IHTTP_RECV_NOTFIND) {
-				printf("error: 404 page not find\n");
-			}	else {
-				printf("error: %ld\n", retval);
-			}
-			break;
-			return -2;
-		}
-		isleep(1);
-	}
-	free(buffer);
-	fclose(fp);
-	ineturl_close(url);
-	return 0;
-}
-
 
 // wget into a string
 // returns >= 0 for okay, below zero for errors:
 // returns IHTTP_RECV_CLOSED for closed
 // returns IHTTP_RECV_NOTFIND for not find
 // returns IHTTP_RECV_ERROR for http error
-int _demo_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time)
+int _urllib_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time)
 {
 	char *buffer;
 	IURLD *url;
@@ -1599,10 +1574,18 @@ int _demo_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time)
 	long size;
 	int done;
 	int hr;
+	int redirect;
+	ivalue_t location;
 
 	ts = iclock64();
 	if (time <= 0) time = 20000;
 	to = ts + time;
+
+	it_init(&location, ITYPE_STR);
+	redirect = 0;
+
+redirected:
+	it_strcpyc(ctx, "", 0);
 
 	url = ineturl_open(URL, NULL, -1, NULL, proxy, &errcode);
 	if (url == NULL) {
@@ -1645,12 +1628,75 @@ int _demo_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time)
 		}
 		isleep(1);
 	}
+	
+	redirect = 0;
 
+	if (hr == IHTTP_RECV_DONE) {
+		if (url->http->code == 301 || url->http->code == 302) {
+			it_cpy(&location, &url->http->location);
+			URL = it_str(&location);
+			redirect = 1;
+		}
+	}
+	
 	ikmem_free(buffer);
 	ineturl_close(url);
 
+	if (redirect) {
+		size = 0;
+		goto redirected;
+	}
+
+	it_destroy(&location);
+
 	if (hr == IHTTP_RECV_DONE) return size;
 	return hr;
+}
+
+
+int _urllib_download(const char *URL, const char *filename)
+{
+	char *buffer;
+	long size;
+	IURLD *url;
+	FILE *fp;
+
+	url = ineturl_open(URL, NULL, -1, NULL, NULL, NULL);
+
+	if (url == NULL) return -1;
+
+	fp = fopen(filename, "wb");
+	buffer = (char*)malloc(1024 * 1024);
+
+	for (size = 0; ; ) {
+		long retval;
+		retval = ineturl_read(url, buffer, 1024 * 1024, 100);
+		if (retval > 0) {
+			size += retval;
+			fwrite(buffer, 1, retval, fp);
+			printf("read: %ld/%ld (%ld%%)\n", size, 
+				(long)(url->http->clength),
+				(long)(size * 100 / url->http->clength));
+		}
+		else if (retval == IHTTP_RECV_DONE) {
+			printf("successful\n");
+			break;
+		}
+		else if (retval != IHTTP_RECV_AGAIN) {
+			if (retval == IHTTP_RECV_NOTFIND) {
+				printf("error: 404 page not find\n");
+			}	else {
+				printf("error: %ld\n", retval);
+			}
+			break;
+			return -2;
+		}
+		isleep(1);
+	}
+	free(buffer);
+	fclose(fp);
+	ineturl_close(url);
+	return 0;
 }
 
 

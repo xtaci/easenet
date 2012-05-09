@@ -160,11 +160,13 @@ int ihttpsock_block_gets(IHTTPSOCK *httpsock, ivalue_t *text);
 #define IHTTP_RESULT_HTTP_UNSUPPORT	5
 #define IHTTP_RESULT_HTTP_OUTRANGE  6
 #define IHTTP_RESULT_HTTP_UNAUTH	7
-#define IHTTP_RESULT_ABORTED		8
-#define IHTTP_RESULT_SOCK_ERROR		9
-#define IHTTP_RESULT_INVALID_ADDR	10
-#define IHTTP_RESULT_CONNECT_FAIL	11
-#define IHTTP_RESULT_DISCONNECTED	12
+#define IHTTP_RESULT_HTTP_REDIR301	8
+#define IHTTP_RESULT_HTTP_REDIR302	9
+#define IHTTP_RESULT_ABORTED		10
+#define IHTTP_RESULT_SOCK_ERROR		11
+#define IHTTP_RESULT_INVALID_ADDR	12
+#define IHTTP_RESULT_CONNECT_FAIL	13
+#define IHTTP_RESULT_DISCONNECTED	14
 
 
 
@@ -182,6 +184,7 @@ struct IHTTPLIB
 	int chunked;
 	int httpver;
 	int nosize;
+	int code;
 	int keepalive;
 	int partial;
 	int isredirect;
@@ -200,7 +203,7 @@ struct IHTTPLIB
 	ivalue_t ctype;
 	ivalue_t sheader;
 	ivalue_t rheader;
-	ivalue_t redirect;
+	ivalue_t location;
 	ivalue_t buffer;
 	struct sockaddr proxyd;
 };
@@ -325,6 +328,9 @@ long ineturl_write(IURLD *url, const void *data, long size);
 // flush: try to send data from buffer to network
 void ineturl_flush(IURLD *url);
 
+// check redirect
+int ineturl_location(IURLD *url, ivalue_t *location);
+
 
 #ifdef __cplusplus
 }
@@ -338,15 +344,16 @@ extern "C" {
 // TOOL AND DEMO
 //---------------------------------------------------------------------
 
-// download to a file
-int _demo_download(const char *URL, const char *filename);
-
 // wget into a string
 // returns >= 0 for okay, below zero for errors:
 // returns IHTTP_RECV_CLOSED for closed
 // returns IHTTP_RECV_NOTFIND for not find
 // returns IHTTP_RECV_ERROR for http error
-int _demo_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time);
+int _urllib_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time);
+
+
+// download to a file
+int _urllib_download(const char *URL, const char *filename);
 
 
 #ifdef __cplusplus
