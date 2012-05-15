@@ -460,7 +460,7 @@ public:
 	KernelPoll() { 
 		ipoll_init(IDEVICE_AUTO);
 		int retval = ipoll_create(&_ipoll_desc, 2000);
-		if (retval == 0) {
+		if (retval != 0) {
 			SYSTEM_THROW("error to create poll descriptor", 10003);
 		}
 	}
