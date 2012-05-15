@@ -1769,10 +1769,10 @@ static int ips_poll_set(ipolld ipd, int fd, int mask)
 	}	else {
 		if (mask & IPOLL_OUT) FD_SET((unsigned)fd, &ps->fdw);
 	}
-	if (omask & IPOLL_IN) {
-		if (!(mask & IPOLL_IN)) FD_CLR((unsigned)fd, &ps->fde);
+	if (omask & IPOLL_ERR) {
+		if (!(mask & IPOLL_ERR)) FD_CLR((unsigned)fd, &ps->fde);
 	}	else {
-		if (mask & IPOLL_IN) FD_SET((unsigned)fd, &ps->fde);
+		if (mask & IPOLL_ERR) FD_SET((unsigned)fd, &ps->fde);
 	}
 	ps->fv.fds[fd].mask = mask;
 
