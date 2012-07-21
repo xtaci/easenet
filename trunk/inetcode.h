@@ -339,6 +339,14 @@ int icsv_writer_push_uint64(iCsvWriter *writer, IUINT64 x, int radix);
 int icsv_writer_push_float(iCsvWriter *writer, float x);
 int icsv_writer_push_double(iCsvWriter *writer, double x);
 
+/*==================================================================*/
+/* loop running per fix interval                                    */
+/*===================================================================*/
+
+void ifix_interval_start(IUINT32* time);
+
+void ifix_interval_running(IUINT32 *time, long interval);
+
 #ifdef __cplusplus
 }
 #endif
