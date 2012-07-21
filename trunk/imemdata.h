@@ -969,7 +969,7 @@ static inline const char *idecode32u_msb(const char *p, IUINT32 *l)
 /* encode 8 bits int */
 static inline char *iencode8i(char *p, char c)
 {
-	iencode8i(p, (unsigned char)c);
+	iencode8u(p, (unsigned char)c);
 	return p + 1;
 }
 
