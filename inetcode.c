@@ -7,6 +7,36 @@
  **********************************************************************/
 
 #include "inetcode.h"
+
+#ifdef __unix
+#include <netdb.h>
+#include <sched.h>
+#include <pthread.h>
+#include <dlfcn.h>
+#include <unistd.h>
+#include <netinet/in.h>
+
+#ifndef __llvm__
+#include <poll.h>
+#include <netinet/tcp.h>
+#endif
+
+#elif (defined(_WIN32) || defined(WIN32))
+#if ((!defined(_M_PPC)) && (!defined(_M_PPC_BE)) && (!defined(_XBOX)))
+#include <mmsystem.h>
+#include <mswsock.h>
+#include <process.h>
+#include <stddef.h>
+#ifdef _MSC_VER
+#pragma warning(disable:4312)
+#pragma warning(disable:4996)
+#endif
+#else
+#include <process.h>
+#endif
+#endif
+
+
 #include <assert.h>
 
 
@@ -2158,3 +2188,23 @@ int icsv_writer_push_double(iCsvWriter *writer, double x)
 }
 
 
+/*==================================================================*/
+/* loop running per fix interval                                    */
+/*===================================================================*/
+
+void ifix_interval_start(IUINT32* time)
+{
+	*time = iclock();
+}
+
+void ifix_interval_running(IUINT32 *time, long interval)
+{
+	IUINT32 current;
+	long sub;
+	current = iclock();
+	sub = itimediff(current, *time);
+	if ( sub < interval) {
+		isleep(interval-sub);
+	}
+	*time += interval;
+}
