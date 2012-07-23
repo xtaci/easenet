@@ -446,6 +446,16 @@ public:
 		}
 	}
 
+	// 无条件唤醒等待
+	void set() {
+		iposix_timer_set(_timer);
+	}
+
+	// 无条件取消等待
+	void reset() {
+		iposix_timer_reset(_timer);
+	}
+
 protected:
 	iPosixTimer *_timer;
 };
@@ -1246,6 +1256,16 @@ public:
 		return iposix_get_execwd();
 	}
 };
+
+#endif
+
+
+#ifndef CLASS_USE_KMEM
+#define CLASS_USE_KMEM \
+	void* operator new (size_t size) { return ikmem_malloc(size); } \
+	void operator delete (void *ptr) { ikmem_free(ptr); } \
+	void* operator new[] (size_t size) { return ikmem_malloc(size); } \
+	void operator delete[] (void *ptr) { ikmem_free(ptr); } 
 
 #endif
 

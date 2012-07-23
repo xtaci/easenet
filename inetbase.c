@@ -4168,6 +4168,7 @@ struct iPosixTimer
 	IINT64 slap;
 	int started;
 	int periodic;
+	int signal;
 	unsigned long delay;
 #ifdef _WIN32
 	HANDLE event;
@@ -4193,6 +4194,7 @@ iPosixTimer *iposix_timer_new(void)
 	timer->started = 0;
 	timer->periodic = 0;
 	timer->delay = 0;
+	timer->signal = 0;
 #ifdef _WIN32
 	timer->id = 0;
 	timer->event = NULL;
@@ -4303,7 +4305,12 @@ int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec)
 	IMUTEX_LOCK(&timer->lock);
 	while (1) {
 		if (timer->started == 0) {
-			if (millisec == IEVENT_INFINITE) {
+			if (timer->signal) {
+				retval = 1;
+				timer->signal = 0;
+				break;
+			}
+			else if (millisec == IEVENT_INFINITE) {
 				iposix_cond_sleep_cs(timer->wait, &timer->lock);
 			}	else {
 				IINT64 delta;
@@ -4325,7 +4332,12 @@ int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec)
 				timer->slap = current;
 			}
 		#endif
-			if (current >= timer->slap) {
+			if (timer->signal) {
+				retval = 1;
+				timer->signal = 0;
+				break;
+			}
+			else if (current >= timer->slap) {
 				retval = 1;
 				if (timer->periodic == 0) {
 					timer->started = 0;
@@ -4360,6 +4372,40 @@ int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec)
 int iposix_timer_wait(iPosixTimer *timer)
 {
 	return iposix_timer_wait_time(timer, IEVENT_INFINITE);
+}
+
+
+/* timer signal set */
+int iposix_timer_set(iPosixTimer *timer)
+{
+	if (timer == NULL) return 0;
+#ifdef _WIN32
+	if (timer->event) {
+		SetEvent(timer->event);
+		return 0;
+	}
+#endif
+	IMUTEX_LOCK(&timer->lock);
+	timer->signal = 1;
+	iposix_cond_wake_all(timer->wait);
+	IMUTEX_UNLOCK(&timer->lock);
+	return 0;
+}
+
+/* timer signal reset */
+int iposix_timer_reset(iPosixTimer *timer)
+{
+	if (timer == NULL) return 0;
+#ifdef _WIN32
+	if (timer->event) {
+		ResetEvent(timer->event);
+		return 0;
+	}
+#endif
+	IMUTEX_LOCK(&timer->lock);
+	timer->signal = 0;
+	IMUTEX_UNLOCK(&timer->lock);
+	return 0;
 }
 
 
