@@ -874,6 +874,11 @@ int iposix_timer_wait_time(iPosixTimer *timer, unsigned long millisec);
 /* wait infinite */
 int iposix_timer_wait(iPosixTimer *timer);
 
+/* timer signal set */
+int iposix_timer_set(iPosixTimer *timer);
+
+/* timer signal reset */
+int iposix_timer_reset(iPosixTimer *timer);
 
 
 #ifdef __cplusplus
