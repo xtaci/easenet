@@ -1770,6 +1770,15 @@ static inline void icrypt_xor(const void *s, void *d, ilong c, IUINT32 m) {
 	}
 }
 
+static inline void icrypt_xor_8(const void *s, void *d, ilong c, IUINT8 m) {
+	const unsigned char *ptr = (const unsigned char*)s;
+	unsigned char *out = (unsigned char*)d;
+	ilong i;
+	for (i = 0; i < c; ptr++, out++, i++) {
+		out[0] = ptr[0] ^ m;
+	}
+}
+
 
 #ifdef __cplusplus
 }
