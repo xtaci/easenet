@@ -533,6 +533,8 @@ public:
 
 	unsigned long get_ip() const { return isockaddr_get_ip(&_remote); }
 
+	char *get_ip_text(char *text) { return isockaddr_get_ip_text(&_remote, text); }
+
 	int get_port() const { return isockaddr_get_port(&_remote); }
 
 	int get_family() const { return isockaddr_get_family(&_remote); }
