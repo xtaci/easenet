@@ -1753,6 +1753,24 @@ void icrypt_rc4_crypt(unsigned char *box, int *x, int *y,
 	const unsigned char *src, unsigned char *dst, ilong size);
 
 
+/**********************************************************************
+ * XOR crypt
+ **********************************************************************/
+static inline void icrypt_xor(const void *s, void *d, ilong c, IUINT32 m) {
+	const unsigned char *ptr = (const unsigned char*)s;
+	unsigned char *out = (unsigned char*)d;
+	unsigned char masks[4];
+	ilong i;
+	masks[0] = (m >> 24) & 0xff;
+	masks[1] = (m >> 16) & 0xff;
+	masks[2] = (m >>  8) & 0xff;
+	masks[3] = (m >>  0) & 0xff;
+	for (i = 0; i < c; ptr++, out++, i++) {
+		out[0] = ptr[0] ^ masks[i & 3];
+	}
+}
+
+
 #ifdef __cplusplus
 }
 #endif
