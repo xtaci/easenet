@@ -604,6 +604,9 @@ int isockaddr_get_family(const struct sockaddr *a);
 /* set text to ip */
 int isockaddr_set_ip_text(struct sockaddr *a, const char *text);
 
+/* get ip text */
+char *isockaddr_get_ip_text(const struct sockaddr *a, char *text);
+
 /* make up address */
 struct sockaddr *isockaddr_makeup(struct sockaddr *a, const char *ip, int p);
 

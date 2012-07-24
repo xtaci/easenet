@@ -1063,10 +1063,24 @@ struct sockaddr *isockaddr_makeup(struct sockaddr *a, const char *ip, int p)
 }
 
 /* convert address to text */
+char* isockaddr_get_ip_text(const struct sockaddr *a, char *text)
+{
+	const struct sockaddr_in *addr = (const struct sockaddr_in*)a;
+	const unsigned char *bytes;
+	static char buffer[32];
+	int ipb[5], i;
+	bytes =  (const unsigned char*)&(addr->sin_addr.s_addr);
+	for (i = 0; i < 4; i++) ipb[i] = bytes[i];
+	text = text? text : buffer;
+	sprintf(text, "%d.%d.%d.%d", ipb[0], ipb[1], ipb[2], ipb[3]);
+	return text;
+}
+
+/* convert address to text */
 char *isockaddr_str(const struct sockaddr *a, char *text)
 {
 	struct sockaddr_in *addr = (struct sockaddr_in*)a;
-	static char buffer[1025];
+	static char buffer[32];
 	unsigned char *bytes;
 	int ipb[5], i;
 	bytes = (unsigned char*)&(addr->sin_addr.s_addr);
