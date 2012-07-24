@@ -1778,6 +1778,14 @@ static inline void icrypt_xor_8(const void *s, void *d, ilong c, IUINT8 m) {
 	}
 }
 
+static inline IUINT32 icrypt_checksum(const void *src, ilong size) {
+	const unsigned char *ptr = (const unsigned char*)src;
+	IUINT32 checksum = 0;
+	for (; size > 0; ptr++, size--) 
+		checksum += ptr[0];
+	return checksum;
+}
+
 
 #ifdef __cplusplus
 }
