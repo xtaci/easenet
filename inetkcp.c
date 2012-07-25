@@ -16,7 +16,7 @@ const IUINT32 IKCP_RTO_NDL = 30;		// no delay min rto
 const IUINT32 IKCP_RTO_MIN = 100;		// normal min rto
 const IUINT32 IKCP_RTO_DEF = 200;
 const IUINT32 IKCP_RTO_MAX = 60000;
-const IUINT32 IKCP_WND_SND = 20;
+const IUINT32 IKCP_WND_SND = 40;
 const IUINT32 IKCP_WND_RCV = 40;
 const IUINT32 IKCP_MTU_DEF = 1400;
 const IUINT32 IKCP_CMD_PUSH	= 1;
@@ -846,4 +846,8 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int rcvwnd)
 	return 0;
 }
 
+int ikcp_waitsnd(const ikcpcb *kcp)
+{
+	return kcp->nsnd_buf + kcp->nsnd_que;
+}
 

@@ -104,6 +104,7 @@ int ikcp_peeksize(const ikcpcb *kcp);
 int ikcp_setmtu(ikcpcb *kcp, int mtu);
 int ikcp_nodelay(ikcpcb *kcp, int nodelay, int interval, int resend);
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int rcvwnd);
+int ikcp_waitsnd(const ikcpcb *kcp);
 
 int ikcp_rcvbuf_count(const ikcpcb *kcp);
 int ikcp_sndbuf_count(const ikcpcb *kcp);
