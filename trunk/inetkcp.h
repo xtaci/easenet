@@ -46,9 +46,9 @@ struct IKCPCB
 {
 	IUINT32 conv, mtu, mss, state;
 	IUINT32 snd_una, snd_nxt, rcv_nxt;
-	IUINT32 ts_recent, ts_lastack;
+	IUINT32 ts_recent, ts_lastack, ssthresh;
 	IINT32 rx_rttval, rx_srtt, rx_rto, rx_minrto;
-	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, ask_wnd;
+	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe;
 	IUINT32 current, interval, ts_flush;
 	IUINT32 nrcv_buf, nsnd_buf;
 	IUINT32 nrcv_que, nsnd_que;
@@ -62,6 +62,7 @@ struct IKCPCB
 	void *user;
 	char *buffer;
 	int fastresend;
+	int nocwnd;
 	int logmask;
 	int (*output)(const char *buf, int len, struct IKCPCB *kcp, void *user);
 	void (*writelog)(const char *log, struct IKCPCB *kcp, void *user);
@@ -106,14 +107,17 @@ void ikcp_flush(ikcpcb *kcp);
 int ikcp_peeksize(const ikcpcb *kcp);
 
 int ikcp_setmtu(ikcpcb *kcp, int mtu);
-int ikcp_nodelay(ikcpcb *kcp, int nodelay, int interval, int resend);
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int rcvwnd);
 int ikcp_waitsnd(const ikcpcb *kcp);
+
+// fastest: ikcp_nodelay(kcp, 1, 20, 2, 1)
+int ikcp_nodelay(ikcpcb *kcp, int nodelay, int interval, int resend, int nc);
 
 int ikcp_rcvbuf_count(const ikcpcb *kcp);
 int ikcp_sndbuf_count(const ikcpcb *kcp);
 
 void ikcp_log(ikcpcb *kcp, int mask, const char *fmt, ...);
+
 
 #ifdef __cplusplus
 }
