@@ -48,11 +48,12 @@ struct IKCPCB
 	IUINT32 snd_una, snd_nxt, rcv_nxt;
 	IUINT32 ts_recent, ts_lastack;
 	IINT32 rx_rttval, rx_srtt, rx_rto, rx_minrto;
-	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, fastack;
+	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, ask_wnd;
 	IUINT32 current, interval, ts_flush;
 	IUINT32 nrcv_buf, nsnd_buf;
 	IUINT32 nrcv_que, nsnd_que;
 	IUINT32 nodelay, updated;
+	IUINT32 ts_probe, probe_wait;
 	struct IQUEUEHEAD snd_queue;
 	struct IQUEUEHEAD rcv_queue;
 	struct IQUEUEHEAD snd_buf;
@@ -75,9 +76,12 @@ typedef struct IKCPCB ikcpcb;
 #define IKCP_LOG_RECV			8
 #define IKCP_LOG_IN_DATA		16
 #define IKCP_LOG_IN_ACK			32
-#define IKCP_LOG_IN_UNA			64
-#define IKCP_LOG_OUT_DATA		128
-#define IKCP_LOG_OUT_ACK		256
+#define IKCP_LOG_IN_PROBE		64
+#define IKCP_LOG_IN_WINS		128
+#define IKCP_LOG_OUT_DATA		256
+#define IKCP_LOG_OUT_ACK		512
+#define IKCP_LOG_OUT_PROBE		1024
+#define IKCP_LOG_OUT_WINS		2048
 
 #ifdef __cplusplus
 extern "C" {
