@@ -107,6 +107,7 @@ struct IMEMNODE
 	ilong *mmode;                   /* node mode array         */
 	ilong *extra;                   /* extra user data         */
 	ilong node_free;                /* number of free nodes    */
+	ilong node_used;                /* number of allocated     */
 	ilong node_max;                 /* number of all nodes     */
 	ilong grow_limit;               /* limit of growing        */
 
@@ -128,10 +129,11 @@ void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac);
 void imnode_destroy(struct IMEMNODE *mnode);
 ilong imnode_new(struct IMEMNODE *mnode);
 void imnode_del(struct IMEMNODE *mnode, ilong index);
-ilong imnode_head(struct IMEMNODE *mnode);
-ilong imnode_next(struct IMEMNODE *mnode, ilong index);
-ilong imnode_prev(struct IMEMNODE *mnode, ilong index);
+ilong imnode_head(const struct IMEMNODE *mnode);
+ilong imnode_next(const struct IMEMNODE *mnode, ilong index);
+ilong imnode_prev(const struct IMEMNODE *mnode, ilong index);
 void*imnode_data(struct IMEMNODE *mnode, ilong index);
+const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index);
 
 #define IMNODE_NODE(mnodeptr, i) ((mnodeptr)->mnode[i])
 #define IMNODE_PREV(mnodeptr, i) ((mnodeptr)->mprev[i])
