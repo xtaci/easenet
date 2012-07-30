@@ -1302,6 +1302,31 @@ public:
 #endif
 
 
+
+//---------------------------------------------------------------------
+// Posix Ê±¼ä
+//---------------------------------------------------------------------
+struct DateTime
+{
+	IINT64 datetime;
+	
+	inline void localtime() { datetime = iposix_datetime(0); }
+	inline void gmtime() { datetime = iposix_datetime(1); }
+
+	inline int year() const { return iposix_time_year(datetime); }
+	inline int month() const { return iposix_time_mon(datetime); }
+	inline int day() const { return iposix_time_day(datetime); }
+	inline int hour() const { return iposix_time_hour(datetime); }
+	inline int minute() const { return iposix_time_min(datetime); }
+	inline int second() const { return iposix_time_sec(datetime); }
+	inline int millisec() const { return iposix_time_ms(datetime); }
+
+	inline char *format(const char *fmt, char *dst = NULL) {
+		return iposix_date_format(fmt, datetime, dst);
+	}
+};
+
+
 NAMESPACE_END(System)
 
 

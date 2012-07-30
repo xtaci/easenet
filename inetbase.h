@@ -884,6 +884,28 @@ int iposix_timer_set(iPosixTimer *timer);
 int iposix_timer_reset(iPosixTimer *timer);
 
 
+/*===================================================================*/
+/* DateTime Cross-Platform Interface                                 */
+/*===================================================================*/
+
+/* GetSystemTime (utc=1) or GetLocalTime (utc=0) */
+IINT64 iposix_datetime(int utc);
+
+/* macros to unpack posix time */
+#define iposix_time_year(bcd) ((int)(((bcd) >> 48) & 0xffff))
+#define iposix_time_mon(bcd)  ((int)(((bcd) >> 44) & 0xf))
+#define iposix_time_day(bcd)  ((int)(((bcd) >> 36) & 0xff))
+#define iposix_time_hour(bcd) ((int)(((bcd) >> 28) & 0xff))
+#define iposix_time_min(bcd)  ((int)(((bcd) >> 20) & 0xff))
+#define iposix_time_sec(bcd)  ((int)(((bcd) >> 12) & 0xff))
+#define iposix_time_ms(bcd)   ((int)(((bcd) >>  0) & 0xfff))
+
+
+/* format date time */
+char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst);
+
+
+
 #ifdef __cplusplus
 }
 #endif
