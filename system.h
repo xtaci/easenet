@@ -519,6 +519,10 @@ public:
 
 	SockAddress(unsigned long ip, int port) { set(ip, port); }
 
+	SockAddress(const SockAddress &src) { _remote = src._remote; }
+
+	SockAddress(const sockaddr &addr) { _remote = addr; }
+
 	void set(const char *ip, int port) { isockaddr_makeup(&_remote, ip, port); }
 
 	void set(unsigned long ip, int port) { isockaddr_set(&_remote, ip, port); }
@@ -547,6 +551,9 @@ public:
 
 	void trace(std::ostream & os) { char text[32]; os << string(text); }
 
+	SockAddress& operator = (const SockAddress &src) { _remote = src._remote; return *this; }
+
+	SockAddress& operator = (const sockaddr &addr) { _remote = addr; return *this; }
 
 protected:
 	sockaddr _remote;
@@ -561,7 +568,7 @@ class MemNode
 public:
 	// 初始化节点分配器，传入每个node的大小，还有增长限制（最多一次性向系统请求
 	// 分配多少个节点）。
-	MemNode(int nodesize, int growlimit = 1024) {
+	MemNode(int nodesize = 8, int growlimit = 1024) {
 		_node = imnode_create(nodesize, growlimit);
 		if (_node == NULL) {
 			SYSTEM_THROW("Error to create imemnode_t", 10004);
@@ -587,18 +594,36 @@ public:
 	int node_size() const { return _nodesize; }
 
 	// 第一个已分配节点，<0 为没有节点
-	ilong head() { return imnode_head(_node); }
+	ilong head() const { return imnode_head(_node); }
 
 	// 下一个已经分配的节点，<0 为结束
-	ilong next(ilong id) { return imnode_next(_node, id); }
+	ilong next(ilong id) const { return IMNODE_NEXT(_node, id); }
 
 	// 上一个已经分配节点，<0 为空
-	ilong prev(ilong id) { return imnode_prev(_node, id); }
+	ilong prev(ilong id) const { return IMNODE_PREV(_node, id); }
+
+	// 取得索引
+	const void*& operator [] (ilong index) const {
+		if (index >= _node->node_max || index < 0) {
+			SYSTEM_THROW("memnode index error", 90001);
+		}
+		return (const void*&)IMNODE_NODE(_node, index);
+	}
+
+	// 取得索引
+	void*& operator [] (ilong index) {
+		if (index >= _node->node_max || index < 0) {
+			SYSTEM_THROW("memnode index error", 90001);
+		}
+		return (void*&)IMNODE_NODE(_node, index);
+	}
 
 	// 取得节点分配器 C原始对象
 	imemnode_t* node_ptr() { return _node; }
-
 	const imemnode_t* node_ptr() const { return _node; }
+
+	ilong node_max() const { return _node->node_max; }
+	long size() const { return _node->node_used; }
 
 protected:
 	int _nodesize;
@@ -1176,6 +1201,11 @@ protected:
 	ITMCLIENT client;
 	CriticalSection lock;
 };
+
+static inline bool NetworkInit()
+{
+	return (inet_init() == 0)? true : false;
+}
 
 
 //---------------------------------------------------------------------

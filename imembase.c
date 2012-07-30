@@ -214,6 +214,7 @@ void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 	mnode->node_size = newsize;
 	mnode->node_shift = (ilong)shift;
 	mnode->node_free = 0;
+	mnode->node_used = 0;
 	mnode->node_max = 0;
 	mnode->mem_max = 0;
 	mnode->mem_count = 0;
@@ -255,6 +256,7 @@ void imnode_destroy(struct IMEMNODE *mnode)
 	mnode->mmode = NULL;
 
 	mnode->node_free = 0;
+	mnode->node_used = 0;
 	mnode->node_max = 0;
 	mnode->list_open = -1;
 	mnode->list_close= -1;
@@ -376,6 +378,7 @@ ilong imnode_new(struct IMEMNODE *mnode)
 	IMNODE_MODE(mnode, node) = 1;
 
 	mnode->node_free--;
+	mnode->node_used++;
 
 	return node;
 }
@@ -403,19 +406,20 @@ void imnode_del(struct IMEMNODE *mnode, ilong index)
 
 	IMNODE_MODE(mnode, index) = 0;
 	mnode->node_free++;
+	mnode->node_used--;
 }
 
-ilong imnode_head(struct IMEMNODE *mnode)
+ilong imnode_head(const struct IMEMNODE *mnode)
 {
 	return (mnode)? mnode->list_close : -1;
 }
 
-ilong imnode_next(struct IMEMNODE *mnode, ilong index)
+ilong imnode_next(const struct IMEMNODE *mnode, ilong index)
 {
 	return (mnode)? IMNODE_NEXT(mnode, index) : -1;
 }
 
-ilong imnode_prev(struct IMEMNODE *mnode, ilong index)
+ilong imnode_prev(const struct IMEMNODE *mnode, ilong index)
 {
 	return (mnode)? IMNODE_PREV(mnode, index) : -1;
 }
@@ -423,6 +427,11 @@ ilong imnode_prev(struct IMEMNODE *mnode, ilong index)
 void *imnode_data(struct IMEMNODE *mnode, ilong index)
 {
 	return (char*)IMNODE_DATA(mnode, index);
+}
+
+const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index)
+{
+	return (const char*)IMNODE_DATA(mnode, index);
 }
 
 
