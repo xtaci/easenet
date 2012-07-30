@@ -4423,3 +4423,156 @@ int iposix_timer_reset(iPosixTimer *timer)
 }
 
 
+
+/*===================================================================*/
+/* DateTime Cross-Platform Interface                                 */
+/*===================================================================*/
+
+/* GetSystemTime (utc=1) or GetLocalTime (utc=0) */
+IINT64 iposix_datetime(int utc) 
+{
+	IUINT32 year, month, mday, hour, min, sec, ms;
+	IINT64 bcd = 0;
+
+#ifdef _WIN32
+	SYSTEMTIME now;
+	if (utc) {
+		GetSystemTime(&now);
+	}	else {
+		GetLocalTime(&now);
+	}
+	year = now.wYear;
+	month = now.wMonth;
+	mday = now.wDay;
+	hour = now.wHour;
+	min = now.wMinute;
+	sec = now.wSecond;
+	ms = now.wMilliseconds;
+#else
+	#ifdef __unix
+	struct timeval tv;
+	struct tm tm_time, *tmx = &tm_time;
+	gettimeofday(&tv, NULL);
+	if (utc) {
+		gmtime_r(&tv.tv_sec, tmx);
+	}	else {
+		localtime_r(&tv.tv_sec, tmx);
+	}
+	ms = tv.tv_usec / 1000;
+	#else
+	time_t tt;
+	struct tm tm_time, *tmx = &tm_time;
+	tt = time(NULL);
+	if (utc) {
+		memcpy(tmx, gmtime(&tt), sizeof(tm_time));
+	}	else {
+		memcpy(tmx, localtime(&tt), sizeof(tm_time));
+	}
+	ms = 0;
+	#endif
+	year = tmx->tm_year + 1900;
+	month = tmx->tm_mon + 1;
+	mday = tmx->tm_mday;
+	hour = tmx->tm_hour;
+	min = tmx->tm_min;
+	sec = tmx->tm_sec;
+#endif
+
+	bcd |= ms;
+	bcd |= ((IINT64)sec) << 12;
+	bcd |= ((IINT64)min) << 20;
+	bcd |= ((IINT64)hour) << 28;
+	bcd |= ((IINT64)mday) << 36;
+	bcd |= ((IINT64)month) << 44;
+	bcd |= ((IINT64)year) << 48;
+
+	return bcd;
+}
+
+
+/* format date time */
+char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst)
+{
+	static char buffer[64];
+	char *out = dst;
+
+	if (dst == NULL) {
+		dst = buffer;
+		out = buffer;
+	}
+
+	while (fmt[0]) {
+		char ch = *fmt++;
+		if (ch == '%') {
+			ch = *fmt++;
+			if (ch == 0) {
+				*out++ = '%';
+				break;
+			}
+			switch (ch)
+			{
+			case 'Y':
+				sprintf(out, "%04d", iposix_time_year(datetime));
+				out += 4;
+				break;
+			case 'y':
+				sprintf(out, "%02d", iposix_time_year(datetime) % 100);
+				out += 2;
+				break;
+			case 'm':
+				sprintf(out, "%02d", iposix_time_mon(datetime));
+				out += 2;
+				break;
+			case 'D':
+			case 'd':
+				sprintf(out, "%02d", iposix_time_day(datetime));
+				out += 2;
+				break;
+			case 'H':
+				sprintf(out, "%02d", iposix_time_hour(datetime));
+				out += 2;
+				break;
+			case 'h':
+				sprintf(out, "%02d", iposix_time_hour(datetime) % 12);
+				out += 2;
+				break;
+			case 'M':
+				sprintf(out, "%02d", iposix_time_min(datetime));
+				out += 2;
+				break;
+			case 'S':
+			case 's':
+				sprintf(out, "%02d", iposix_time_sec(datetime));
+				out += 2;
+				break;
+			case 'F':
+			case 'f':
+				sprintf(out, "%03d", iposix_time_ms(datetime));
+				out += 3;
+				break;
+			case 'p':
+			case 'P':
+				if (iposix_time_hour(datetime) < 12) {
+					sprintf(out, "AM");
+				}	else {
+					sprintf(out, "PM");
+				}
+				out += 2;
+				break;
+			default:
+				*out++ = '%';
+				*out++ = ch;
+				break;
+			}
+		}
+		else {
+			*out++ = ch;
+		}
+	}
+
+	*out++ = 0;
+
+	return dst;
+}
+
+
