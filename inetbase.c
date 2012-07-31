@@ -4431,7 +4431,7 @@ int iposix_timer_reset(iPosixTimer *timer)
 /* GetSystemTime (utc=1) or GetLocalTime (utc=0) */
 IINT64 iposix_datetime(int utc) 
 {
-	IUINT32 year, month, mday, hour, min, sec, ms;
+	IUINT32 year, month, mday, wday, hour, min, sec, ms;
 	IINT64 bcd = 0;
 
 #ifdef _WIN32
@@ -4444,6 +4444,7 @@ IINT64 iposix_datetime(int utc)
 	year = now.wYear;
 	month = now.wMonth;
 	mday = now.wDay;
+	wday = now.wDayOfWeek;
 	hour = now.wHour;
 	min = now.wMinute;
 	sec = now.wSecond;
@@ -4473,17 +4474,19 @@ IINT64 iposix_datetime(int utc)
 	year = tmx->tm_year + 1900;
 	month = tmx->tm_mon + 1;
 	mday = tmx->tm_mday;
+	wday = tmx->tm_wday;
 	hour = tmx->tm_hour;
 	min = tmx->tm_min;
 	sec = tmx->tm_sec;
 #endif
 
-	bcd |= ms;
-	bcd |= ((IINT64)sec) << 12;
-	bcd |= ((IINT64)min) << 20;
-	bcd |= ((IINT64)hour) << 28;
-	bcd |= ((IINT64)mday) << 36;
-	bcd |= ((IINT64)month) << 44;
+	bcd |= (ms & 1023);
+	bcd |= ((IINT64)sec) << 10;
+	bcd |= ((IINT64)min) << 16;
+	bcd |= ((IINT64)hour) << 22;
+	bcd |= ((IINT64)wday) << 27;
+	bcd |= ((IINT64)mday) << 30;
+	bcd |= ((IINT64)month) << 35;
 	bcd |= ((IINT64)year) << 48;
 
 	return bcd;
@@ -4493,8 +4496,18 @@ IINT64 iposix_datetime(int utc)
 /* format date time */
 char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst)
 {
-	static char buffer[64];
+	static char buffer[128];
 	char *out = dst;
+
+	static const char *weekday1[7] = { "Sun", "Mon", "Tus", "Wed", "Thu", 
+		"Fri", "Sat" };
+	static const char *weekday2[7] = { "Sunday", "Monday", "Tuesday", 
+		"Wednesday", "Thurday", "Friday", "Saturday" };
+	static const char *month1[13] = { "", "Jan", "Feb", "Mar", "Apr", "May",
+		"Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+	static const char *month2[13] = { "", "January", "February", "March", 
+		"April", "May", "June", "July", "August", "September", 
+		"October", "November", "December" };
 
 	if (dst == NULL) {
 		dst = buffer;
@@ -4511,6 +4524,22 @@ char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst)
 			}
 			switch (ch)
 			{
+			case 'a':
+				sprintf(out, "%s", weekday1[iposix_time_wday(datetime)]);
+				out += strlen(weekday1[iposix_time_wday(datetime)]);
+				break;
+			case 'A':
+				sprintf(out, "%s", weekday2[iposix_time_wday(datetime)]);
+				out += strlen(weekday2[iposix_time_wday(datetime)]);
+				break;
+			case 'b':
+				sprintf(out, "%s", month1[iposix_time_mon(datetime)]);
+				out += strlen(month1[iposix_time_mon(datetime)]);
+				break;
+			case 'B':
+				sprintf(out, "%s", month2[iposix_time_mon(datetime)]);
+				out += strlen(month2[iposix_time_mon(datetime)]);
+				break;
 			case 'Y':
 				sprintf(out, "%04d", iposix_time_year(datetime));
 				out += 4;
@@ -4524,8 +4553,11 @@ char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst)
 				out += 2;
 				break;
 			case 'D':
+				sprintf(out, "%02d", iposix_time_wday(datetime));
+				out += 2;
+				break;
 			case 'd':
-				sprintf(out, "%02d", iposix_time_day(datetime));
+				sprintf(out, "%02d", iposix_time_mday(datetime));
 				out += 2;
 				break;
 			case 'H':

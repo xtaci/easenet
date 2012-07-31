@@ -1309,23 +1309,41 @@ public:
 struct DateTime
 {
 	IINT64 datetime;
+
+	DateTime() {}
+	DateTime(const DateTime &dt) { datetime = dt.datetime; }
 	
 	inline void localtime() { datetime = iposix_datetime(0); }
 	inline void gmtime() { datetime = iposix_datetime(1); }
 
 	inline int year() const { return iposix_time_year(datetime); }
 	inline int month() const { return iposix_time_mon(datetime); }
-	inline int day() const { return iposix_time_day(datetime); }
+	inline int mday() const { return iposix_time_mday(datetime); }
+	inline int wday() const { return iposix_time_wday(datetime); }
 	inline int hour() const { return iposix_time_hour(datetime); }
 	inline int minute() const { return iposix_time_min(datetime); }
 	inline int second() const { return iposix_time_sec(datetime); }
 	inline int millisec() const { return iposix_time_ms(datetime); }
 
-	inline char *format(const char *fmt, char *dst = NULL) {
+	inline char *format(const char *fmt, char *dst = NULL) const {
 		return iposix_date_format(fmt, datetime, dst);
+	}
+
+	inline DateTime& operator = (const DateTime &d) {
+		datetime = d.datetime;
+		return *this;
+	}
+
+	inline void trace(std::ostream & os) const { 
+		char text[128]; 
+		os << format("%Y-%m-%d %H:%M:%S", text); 
 	}
 };
 
+inline std::ostream & operator << (std::ostream & os, const DateTime &m) {
+	m.trace(os);
+	return os;
+}
 
 NAMESPACE_END(System)
 

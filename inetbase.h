@@ -893,12 +893,13 @@ IINT64 iposix_datetime(int utc);
 
 /* macros to unpack posix time */
 #define iposix_time_year(bcd) ((int)(((bcd) >> 48) & 0xffff))
-#define iposix_time_mon(bcd)  ((int)(((bcd) >> 44) & 0xf))
-#define iposix_time_day(bcd)  ((int)(((bcd) >> 36) & 0xff))
-#define iposix_time_hour(bcd) ((int)(((bcd) >> 28) & 0xff))
-#define iposix_time_min(bcd)  ((int)(((bcd) >> 20) & 0xff))
-#define iposix_time_sec(bcd)  ((int)(((bcd) >> 12) & 0xff))
-#define iposix_time_ms(bcd)   ((int)(((bcd) >>  0) & 0xfff))
+#define iposix_time_mon(bcd)  ((int)(((bcd) >> 35) & 0xf))
+#define iposix_time_mday(bcd) ((int)(((bcd) >> 30) & 31))
+#define iposix_time_wday(bcd) ((int)(((bcd) >> 27) & 7))
+#define iposix_time_hour(bcd) ((int)(((bcd) >> 22) & 31))
+#define iposix_time_min(bcd)  ((int)(((bcd) >> 16) & 63))
+#define iposix_time_sec(bcd)  ((int)(((bcd) >> 10) & 63))
+#define iposix_time_ms(bcd)   ((int)(((bcd) >>  0) & 1023))
 
 
 /* format date time */
