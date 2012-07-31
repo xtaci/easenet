@@ -4524,6 +4524,9 @@ char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst)
 			}
 			switch (ch)
 			{
+			case '%':
+				*out++ = '%';
+				break;
 			case 'a':
 				sprintf(out, "%s", weekday1[iposix_time_wday(datetime)]);
 				out += strlen(weekday1[iposix_time_wday(datetime)]);
