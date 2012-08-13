@@ -77,6 +77,7 @@ static int ikcp_output(ikcpcb *kcp, const void *data, int size)
 	if (ikcp_canlog(kcp, IKCP_LOG_OUTPUT)) {
 		ikcp_log(kcp, IKCP_LOG_OUTPUT, "[RO] %ld bytes", (long)size);
 	}
+	if (size == 0) return 0;
 	return kcp->output((const char*)data, size, kcp, kcp->user);
 }
 
