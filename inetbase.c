@@ -4455,9 +4455,11 @@ IINT64 iposix_datetime(int utc)
 	struct tm tm_time, *tmx = &tm_time;
 	gettimeofday(&tv, NULL);
 	if (utc) {
-		gmtime_r(&tv.tv_sec, tmx);
+		time_t sec = (time_t)tv.tv_sec;
+		gmtime_r(&sec, tmx);
 	}	else {
-		localtime_r(&tv.tv_sec, tmx);
+		time_t sec = (time_t)tv.tv_sec;
+		localtime_r(&sec, tmx);
 	}
 	ms = tv.tv_usec / 1000;
 	#else
