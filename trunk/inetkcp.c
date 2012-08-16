@@ -88,7 +88,7 @@ void ikcp_qprint(const char *name, const struct IQUEUEHEAD *head)
 	printf("<%s>: [", name);
 	for (p = head->next; p != head; p = p->next) {
 		const IKCPSEG *seg = iqueue_entry(p, const IKCPSEG, node);
-		printf("(%lu %d)", seg->sn, (int)(seg->ts % 10000));
+		printf("(%lu %d)", (unsigned long)seg->sn, (int)(seg->ts % 10000));
 		if (p->next != head) printf(",");
 	}
 	printf("]\n");
