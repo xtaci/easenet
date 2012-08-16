@@ -1363,7 +1363,7 @@ typedef std::vector<std::string> StringList;
 
 // 去除头部尾部多余字符，比如：StringStrip(text, "\r\n\t ")
 static inline void StringStrip(std::string &str, const char *seps) {
-	int p1, p2, i;
+	size_t p1, p2, i;
 	for (p1 = 0; p1 < str.size(); p1++) {
 		char ch = str[p1];
 		int skip = 0;
@@ -1394,7 +1394,7 @@ static inline void StringStrip(std::string &str, const char *seps) {
 // 分割字符串到 StringList，比如：StringSplit(text, slist, "\n");
 static inline void StringSplit(const std::string &str, StringList &out, const char *seps) {
 	out.clear();
-	for (int i = 0, j = 0; i <= str.size(); ) {
+	for (size_t i = 0, j = 0; i <= str.size(); ) {
 		for (; j < str.size(); j++) {
 			char ch = str[j];
 			int skip = 0;
@@ -1417,7 +1417,7 @@ static inline void StringSplit(const std::string &str, StringList &out, const ch
 
 // 字符串连接
 static inline void StringJoin(std::string &out, const StringList &src, const char *s) {
-	for (int i = 0; i < src.size(); i++) {
+	for (size_t i = 0; i < src.size(); i++) {
 		if (i == 0) out = src[i];
 		else {
 			out += s;
@@ -1433,7 +1433,7 @@ static inline void StringConfig(const std::string &str, StringList &names, Strin
 	names.clear();
 	datas.clear();
 	StringSplit(str, lines, "\n\r;,");
-	for (int i = 0; i < lines.size(); i++) {
+	for (size_t i = 0; i < lines.size(); i++) {
 		std::string &line = lines[i];
 		int pos = line.find('=');
 		if (pos >= 0) {
@@ -1535,13 +1535,13 @@ static inline std::string Qword2String(IINT64 x, int base = 10) {
 }
 
 static inline void StringUpper(std::string &s) {
-	for (int i = 0; i < s.size(); i++) {
+	for (size_t i = 0; i < s.size(); i++) {
 		if (s[i] >= 'a' && s[i] <= 'z') s[i] -= 'a' - 'A';
 	}
 }
 
 static inline void StringLower(std::string &s) {
-	for (int i = 0; i < s.size(); i++) {
+	for (size_t i = 0; i < s.size(); i++) {
 		if (s[i] >= 'A' && s[i] <= 'A') s[i] += 'a' - 'A';
 	}
 }
