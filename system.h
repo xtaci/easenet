@@ -28,6 +28,7 @@
 // CsvWriter         CSV文件写入
 // HttpRequest       反照 Python的 urllib，非阻塞和阻塞模式
 // Path              仿照 Python的 os.path 路径连接，绝对路径等
+// DateTime          取日期和时间（精确到毫秒的）
 //
 //=====================================================================
 #ifndef __SYSTEM_H__
@@ -56,6 +57,7 @@
 #endif
 
 #include <string>
+#include <vector>
 #include <iostream>
 
 NAMESPACE_BEGIN(System)
@@ -547,13 +549,21 @@ public:
 
 	sockaddr* address() { return &_remote; }
 
-	char *string(char *out) { return isockaddr_str(&_remote, out); }
+	char *string(char *out) const { return isockaddr_str(&_remote, out); }
 
-	void trace(std::ostream & os) { char text[32]; os << string(text); }
+	void trace(std::ostream & os) const { char text[32]; os << string(text); }
 
 	SockAddress& operator = (const SockAddress &src) { _remote = src._remote; return *this; }
 
 	SockAddress& operator = (const sockaddr &addr) { _remote = addr; return *this; }
+
+	bool operator == (const SockAddress &src) const { 
+		return (src.get_ip() == get_ip() && src.get_port() == get_port());
+	}
+
+	bool operator != (const SockAddress &src) const {
+		return (src.get_ip() != get_ip() || src.get_port() != get_port());
+	}
 
 protected:
 	sockaddr _remote;
@@ -1344,6 +1354,198 @@ inline std::ostream & operator << (std::ostream & os, const DateTime &m) {
 	m.trace(os);
 	return os;
 }
+
+
+//---------------------------------------------------------------------
+// 字符串处理
+//---------------------------------------------------------------------
+typedef std::vector<std::string> StringList;
+
+// 去除头部尾部多余字符，比如：StringStrip(text, "\r\n\t ")
+static inline void StringStrip(std::string &str, const char *seps) {
+	int p1, p2, i;
+	for (p1 = 0; p1 < str.size(); p1++) {
+		char ch = str[p1];
+		int skip = 0;
+		for (i = 0; seps[i]; i++) {
+			if (ch == seps[i]) {
+				skip = 1;
+				break;
+			}
+		}
+		if (skip == 0) 
+			break;
+	}
+	for (p2 = str.size() - 1; p2 >= 0 && p2 >= p1; p2--) {
+		char ch = str[p2];
+		int skip = 0;
+		for (i = 0; seps[i]; i++) {
+			if (ch == seps[i]) {
+				skip = 1;
+				break;
+			}
+		}
+		if (skip == 0) 
+			break;
+	}
+	str = str.substr(p1, p2 - p1 + 1);
+}
+
+// 分割字符串到 StringList，比如：StringSplit(text, slist, "\n");
+static inline void StringSplit(const std::string &str, StringList &out, const char *seps) {
+	out.clear();
+	for (int i = 0, j = 0; i <= str.size(); ) {
+		for (; j < str.size(); j++) {
+			char ch = str[j];
+			int skip = 0;
+			for (int k = 0; seps[k]; k++) {
+				if (seps[k] == ch) {
+					skip = 1;
+					break;
+				}
+			}
+			if (skip) {
+				break;
+			}
+		}
+		std::string text = str.substr(i, j - i);
+		out.push_back(text);
+		i = j + 1;
+		j = i;
+	}
+}
+
+// 字符串连接
+static inline void StringJoin(std::string &out, const StringList &src, const char *s) {
+	for (int i = 0; i < src.size(); i++) {
+		if (i == 0) out = src[i];
+		else {
+			out += s;
+			out += out[i];
+		}
+	}
+}
+
+
+// 字符串配置：比如分割"abc=1;x=100;y=100;z=0"为 name和 value
+static inline void StringConfig(const std::string &str, StringList &names, StringList &datas) {
+	StringList lines;
+	names.clear();
+	datas.clear();
+	StringSplit(str, lines, "\n\r;,");
+	for (int i = 0; i < lines.size(); i++) {
+		std::string &line = lines[i];
+		int pos = line.find('=');
+		if (pos >= 0) {
+			std::string n = line.substr(0, pos);
+			std::string d = line.substr(pos + 1);
+			StringStrip(n, "\r\n\t ");
+			StringStrip(d, "\r\n\t ");
+			names.push_back(n);
+			datas.push_back(d);
+		}
+	}
+}
+
+
+// 字符串到整数
+static inline int String2Int(const std::string &str, int base = 0) {
+	return (int)istrtol(str.c_str(), NULL, base);
+}
+
+// 字符串到无符号整形
+static inline unsigned int String2UInt(const std::string &str, int base = 0) {
+	return (unsigned int)istrtoul(str.c_str(), NULL, base);
+}
+
+// 字符串到长整形
+static inline long String2Long(const std::string &str, int base = 0) {
+	return istrtol(str.c_str(), NULL, base);
+}
+
+// 字符串到无符号长整形
+static inline unsigned long String2ULong(const std::string &str, int base = 0) {
+	return istrtoul(str.c_str(), NULL, base);
+}
+
+// 字符串到64位整数
+static inline IINT64 String2Int64(const std::string &str, int base = 0) {
+	return istrtoll(str.c_str(), NULL, base);
+}
+
+// 字符串到64位整数，无符号
+static inline IINT64 String2UInt64(const std::string &str, int base = 0) {
+	return istrtoull(str.c_str(), NULL, base);
+}
+
+// 长整形到字符串
+static inline void StringFromLong(std::string &out, long x, int base = 10) {
+	char text[24];
+	iltoa(x, text, base);
+	out = text;
+}
+
+// 无符号长整形到字符串
+static inline void StringFromULong(std::string &out, unsigned long x, int base = 10) {
+	char text[24];
+	iultoa(x, text, base);
+	out = text;
+}
+
+// 64位整形到字符串
+static inline void StringFromInt64(std::string &out, IINT64 x, int base = 10) {
+	char text[24];
+	illtoa(x, text, base);
+	out = text;
+}
+
+// 无符号64位整形到字符串
+static inline void StringFromUInt64(std::string &out, IUINT64 x, int base = 10) {
+	char text[24];
+	iulltoa(x, text, base);
+	out = text;
+}
+
+// 整数到字符串
+static inline void StringFromInt(std::string &out, int x, int base = 10) {
+	StringFromLong(out, (long)x, base);
+}
+
+// 无符号整数到字符串
+static inline void StringFromUInt(std::string &out, int x, int base = 10) {
+	StringFromULong(out, (unsigned long)x, base);
+}
+
+static inline std::string Int2String(int x, int base = 10) { 
+	std::string s;
+	StringFromInt(s, x, base);
+	return s;
+}
+
+static inline std::string Long2String(long x, int base = 10) {
+	std::string s;
+	StringFromLong(s, x, base);
+	return s;
+}
+
+static inline std::string Qword2String(IINT64 x, int base = 10) {
+	std::string s;
+	StringFromInt64(s, x, base);
+	return s;
+}
+
+static inline void StringUpper(std::string &s) {
+	for (int i = 0; i < s.size(); i++) {
+		if (s[i] >= 'a' && s[i] <= 'z') s[i] -= 'a' - 'A';
+	}
+}
+
+static inline void StringLower(std::string &s) {
+	for (int i = 0; i < s.size(); i++) {
+		if (s[i] >= 'A' && s[i] <= 'A') s[i] += 'a' - 'A';
+	}
+}
+
 
 NAMESPACE_END(System)
 
