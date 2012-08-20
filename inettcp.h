@@ -197,6 +197,7 @@ int itcp_setbuf(itcpcb *tcp, long bufsize);
 
 long itcp_dsize(const itcpcb *tcp);
 long itcp_peek(itcpcb *tcp, char *buffer, long len);
+long itcp_canwrite(const itcpcb *tcp);
 
 void itcp_option(itcpcb *tcp, int nodelay, int keepalive);
 
