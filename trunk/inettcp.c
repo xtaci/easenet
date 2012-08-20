@@ -1457,3 +1457,12 @@ void itcp_option(itcpcb *tcp, int nodelay, int keepalive)
 }
 
 
+//---------------------------------------------------------------------
+// how many bytes can write to send buffer
+//---------------------------------------------------------------------
+long itcp_canwrite(const itcpcb *tcp)
+{
+	return tcp->buf_size - tcp->slen;
+}
+
+
