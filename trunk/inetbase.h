@@ -527,7 +527,7 @@ int irecvfrom(int sock, void *buf, long size, int mode,
 	struct sockaddr *addr);
 
 /* ioctl */
-int iioctl(int sock, long cmd, unsigned long *argp);
+int iioctl(int sock, unsigned long cmd, unsigned long *argp);
 
 /* set socket option */
 int isetsockopt(int sock, int level, int optname, const char *optval, 
