@@ -22,7 +22,6 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#include <sys/fcntl.h>
 
 #ifndef __llvm__
 #include <poll.h>
@@ -395,13 +394,13 @@ int irecvfrom(int sock, void *buf, long size, int mode,
 }
 
 /* i/o control */
-int iioctl(int sock, long cmd, unsigned long *argp)
+int iioctl(int sock, unsigned long cmd, unsigned long *argp)
 {
 	int retval;
 	#ifdef __unix
 	retval = ioctl(sock, cmd, argp);
 	#else
-	retval = ioctlsocket((SOCKET)sock, cmd, argp);
+	retval = ioctlsocket((SOCKET)sock, (long)cmd, argp);
 	#endif
 	return retval;	
 }
@@ -453,14 +452,7 @@ int ienable(int fd, int mode)
 	switch (mode)
 	{
 	case ISOCK_NOBLOCK:
-		retval = iioctl(fd, (int)FIONBIO, (unsigned long*)(void*)&value);
-		if (retval < 0) {
-		#ifdef __unix
-			/* ioctl may fail in some os, retry with fcntl */
-			int flags = fcntl(fd, F_GETFL, 0);
-			if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1) retval = 0;
-		#endif
-		}
+		retval = iioctl(fd, FIONBIO, (unsigned long*)(void*)&value);
 		break;
 	case ISOCK_REUSEADDR:
 		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
@@ -494,14 +486,7 @@ int idisable(int fd, int mode)
 	switch (mode)
 	{
 	case ISOCK_NOBLOCK:
-		retval = iioctl(fd, (int)FIONBIO, (unsigned long*)&value);
-		if (retval < 0) {
-		#ifdef __unix
-			/* ioctl may fail in some os, retry with fcntl */
-			int flags = fcntl(fd, F_GETFL, 0);
-			if (fcntl(fd, F_SETFL, (flags & (~O_NONBLOCK))) != -1) retval = 0;
-		#endif
-		}
+		retval = iioctl(fd, FIONBIO, (unsigned long*)&value);
 		break;
 	case ISOCK_REUSEADDR:
 		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
