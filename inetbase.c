@@ -22,6 +22,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <sys/fcntl.h>
 
 #ifndef __llvm__
 #include <poll.h>
@@ -453,6 +454,13 @@ int ienable(int fd, int mode)
 	{
 	case ISOCK_NOBLOCK:
 		retval = iioctl(fd, (int)FIONBIO, (unsigned long*)(void*)&value);
+		if (retval < 0) {
+		#ifdef __unix
+			/* ioctl may fail in some os, retry with fcntl */
+			int flags = fcntl(fd, F_GETFL, 0);
+			if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1) retval = 0;
+		#endif
+		}
 		break;
 	case ISOCK_REUSEADDR:
 		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
@@ -487,6 +495,13 @@ int idisable(int fd, int mode)
 	{
 	case ISOCK_NOBLOCK:
 		retval = iioctl(fd, (int)FIONBIO, (unsigned long*)&value);
+		if (retval < 0) {
+		#ifdef __unix
+			/* ioctl may fail in some os, retry with fcntl */
+			int flags = fcntl(fd, F_GETFL, 0);
+			if (fcntl(fd, F_SETFL, (flags & (~O_NONBLOCK))) != -1) retval = 0;
+		#endif
+		}
 		break;
 	case ISOCK_REUSEADDR:
 		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
