@@ -23,12 +23,6 @@ const IUINT32 IKCP_RTO_MAX = 60000;
 const IUINT32 IKCP_WND_SND = 32;
 const IUINT32 IKCP_WND_RCV = 32;
 const IUINT32 IKCP_MTU_DEF = 1400;
-const IUINT32 IKCP_CMD_PUSH	= 81;		// cmd: push data
-const IUINT32 IKCP_CMD_ACK	= 82;		// cmd: ack
-const IUINT32 IKCP_CMD_WASK = 83;		// cmd: window probe (ask)
-const IUINT32 IKCP_CMD_WINS = 84;		// cmd: window size (tell) 
-const IUINT32 IKCP_ASK_SEND = 1;		// need to send IKCP_CMD_WASK
-const IUINT32 IKCP_ASK_TELL = 2;		// need to send IKCP_CMD_WINS
 const IUINT32 IKCP_ACK_FAST	= 3;
 const IUINT32 IKCP_INTERVAL	= 100;
 const IUINT32 IKCP_OVERHEAD = 24;
@@ -36,6 +30,13 @@ const IUINT32 IKCP_DEADLINK = 10;
 const IUINT32 IKCP_THRESH_INIT = 2;
 const IUINT32 IKCP_PROBE_INIT = 7000;		// 7 secs to probe window size
 const IUINT32 IKCP_PROBE_LIMIT = 120000;	// up to 120 secs to probe window
+
+#define IKCP_CMD_PUSH		81			// cmd: push data
+#define IKCP_CMD_ACK		82			// cmd: ack
+#define IKCP_CMD_WASK		83			// cmd: window probe (ask)
+#define IKCP_CMD_WINS		84			// cmd: window size (tell) 
+#define IKCP_ASK_SEND		1			// need to send IKCP_CMD_WASK
+#define IKCP_ASK_TELL		2			// need to send IKCP_CMD_WINS
 
 
 //---------------------------------------------------------------------
@@ -720,8 +721,8 @@ void ikcp_flush(ikcpcb *kcp)
 
 	// flush window probing commands
 	for (i = 0; i < 2; i++) {
-		const IUINT32 flags[2] = { IKCP_ASK_SEND, IKCP_ASK_TELL };
-		const IUINT32 cmds[2] = { IKCP_CMD_WASK, IKCP_CMD_WINS };
+		static const IUINT32 flags[2] = { IKCP_ASK_SEND, IKCP_ASK_TELL };
+		static const IUINT32 cmds[2] = { IKCP_CMD_WASK, IKCP_CMD_WINS };
 		if (kcp->probe & flags[i]) {
 			seg.cmd = cmds[i];
 			size = (int)(ptr - buffer);
@@ -849,16 +850,23 @@ void ikcp_flush(ikcpcb *kcp)
 //---------------------------------------------------------------------
 void ikcp_update(ikcpcb *kcp, IUINT32 current)
 {
+	IINT32 slap;
+
 	kcp->current = current;
+
 	if (kcp->updated == 0) {
 		kcp->updated = 1;
 		kcp->ts_flush = kcp->current;
 	}
-	if (itimediff(kcp->current, kcp->ts_flush) >= 10000 ||
-		itimediff(kcp->current, kcp->ts_flush) < -10000) {
+
+	slap = itimediff(kcp->current, kcp->ts_flush);
+
+	if (slap >= 10000 || slap < -10000) {
 		kcp->ts_flush = kcp->current;
+		slap = 0;
 	}
-	if (itimediff(kcp->current, kcp->ts_flush) >= 0) {
+
+	if (slap >= 0) {
 		kcp->ts_flush += kcp->interval;
 		if (itimediff(kcp->current, kcp->ts_flush) >= 0) {
 			kcp->ts_flush = kcp->current + kcp->interval;
@@ -866,6 +874,7 @@ void ikcp_update(ikcpcb *kcp, IUINT32 current)
 		ikcp_flush(kcp);
 	}
 }
+
 
 IUINT32 ikcp_check(const ikcpcb *kcp, IUINT32 current)
 {

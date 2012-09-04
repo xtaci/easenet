@@ -853,7 +853,7 @@ int iposix_path_mkdir(const char *path, int mode)
 #endif
 
 	for (i = 0; i < len; i++) {
-		if (str[i] == '/') {
+		if (str[i] == '/' || str[i] == '\\') {
 			str[i] = '\0';
 			if (iposix_access(str, F_OK) != 0) {
 				iposix_mkdir(str, mode);
