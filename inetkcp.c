@@ -432,8 +432,7 @@ static void ikcp_ack_push(ikcpcb *kcb, IUINT32 sn, IUINT32 ts)
 
 static int ikcp_ack_count(const ikcpcb *kcb)
 {
-	// optimized for: kcp->acklist->size / (sizeof(IUINT32) * 2)
-	return kcb->acklist->size >> 3;
+	return kcb->acklist->size / (sizeof(IUINT32) * 2);
 }
 
 static void ikcp_ack_get(const ikcpcb *kcb, int p, IUINT32 *sn, IUINT32 *ts)
@@ -850,19 +849,15 @@ void ikcp_flush(ikcpcb *kcp)
 //---------------------------------------------------------------------
 void ikcp_update(ikcpcb *kcp, IUINT32 current)
 {
-	IINT32 slap;
-
 	kcp->current = current;
 	if (kcp->updated == 0) {
 		kcp->updated = 1;
 		kcp->ts_flush = kcp->current;
 	}
-
-	slap = itimediff(kcp->current, kcp->ts_flush);
-	if (slap >= 10000 || slap < -10000) {
+	if (itimediff(kcp->current, kcp->ts_flush) >= 10000 ||
+		itimediff(kcp->current, kcp->ts_flush) < -10000) {
 		kcp->ts_flush = kcp->current;
 	}
-
 	if (itimediff(kcp->current, kcp->ts_flush) >= 0) {
 		kcp->ts_flush += kcp->interval;
 		if (itimediff(kcp->current, kcp->ts_flush) >= 0) {
