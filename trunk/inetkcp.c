@@ -20,6 +20,12 @@ const IUINT32 IKCP_RTO_NDL = 30;		// no delay min rto
 const IUINT32 IKCP_RTO_MIN = 100;		// normal min rto
 const IUINT32 IKCP_RTO_DEF = 200;
 const IUINT32 IKCP_RTO_MAX = 60000;
+const IUINT32 IKCP_CMD_PUSH = 81;		// cmd: push data
+const IUINT32 IKCP_CMD_ACK  = 82;		// cmd: ack
+const IUINT32 IKCP_CMD_WASK = 83;		// cmd: window probe (ask)
+const IUINT32 IKCP_CMD_WINS = 84;		// cmd: window size (tell)
+const IUINT32 IKCP_ASK_SEND = 1;		// need to send IKCP_CMD_WASK
+const IUINT32 IKCP_ASK_TELL = 2;		// need to send IKCP_CMD_WINS
 const IUINT32 IKCP_WND_SND = 32;
 const IUINT32 IKCP_WND_RCV = 32;
 const IUINT32 IKCP_MTU_DEF = 1400;
@@ -30,13 +36,6 @@ const IUINT32 IKCP_DEADLINK = 10;
 const IUINT32 IKCP_THRESH_INIT = 2;
 const IUINT32 IKCP_PROBE_INIT = 7000;		// 7 secs to probe window size
 const IUINT32 IKCP_PROBE_LIMIT = 120000;	// up to 120 secs to probe window
-
-#define IKCP_CMD_PUSH		81			// cmd: push data
-#define IKCP_CMD_ACK		82			// cmd: ack
-#define IKCP_CMD_WASK		83			// cmd: window probe (ask)
-#define IKCP_CMD_WINS		84			// cmd: window size (tell) 
-#define IKCP_ASK_SEND		1			// need to send IKCP_CMD_WASK
-#define IKCP_ASK_TELL		2			// need to send IKCP_CMD_WINS
 
 
 //---------------------------------------------------------------------
@@ -720,18 +719,25 @@ void ikcp_flush(ikcpcb *kcp)
 	}
 
 	// flush window probing commands
-	for (i = 0; i < 2; i++) {
-		static const IUINT32 flags[2] = { IKCP_ASK_SEND, IKCP_ASK_TELL };
-		static const IUINT32 cmds[2] = { IKCP_CMD_WASK, IKCP_CMD_WINS };
-		if (kcp->probe & flags[i]) {
-			seg.cmd = cmds[i];
-			size = (int)(ptr - buffer);
-			if (size > (int)kcp->mtu) {
-				ikcp_output(kcp, buffer, size);
-				ptr = buffer;
-			}
-			ptr = ikcp_encode_seg(ptr, &seg);
+	if (kcp->probe & IKCP_ASK_SEND) {
+		seg.cmd = IKCP_CMD_WASK;
+		size = (int)(ptr - buffer);
+		if (size > (int)kcp->mtu) {
+			ikcp_output(kcp, buffer, size);
+			ptr = buffer;
 		}
+		ptr = ikcp_encode_seg(ptr, &seg);
+	}
+
+	// flush window probing commands
+	if (kcp->probe & IKCP_ASK_TELL) {
+		seg.cmd = IKCP_CMD_WINS;
+		size = (int)(ptr - buffer);
+		if (size > (int)kcp->mtu) {
+			ikcp_output(kcp, buffer, size);
+			ptr = buffer;
+		}
+		ptr = ikcp_encode_seg(ptr, &seg);
 	}
 
 	kcp->probe = 0;
