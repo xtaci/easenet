@@ -265,6 +265,20 @@ int ikcp_recv(ikcpcb *kcp, char *buffer, int len)
 
 	assert(len == peeksize);
 
+	// move available data from rcv_buf -> rcv_queue
+	while (! iqueue_is_empty(&kcp->rcv_buf)) {
+		IKCPSEG *seg = iqueue_entry(kcp->rcv_buf.next, IKCPSEG, node);
+		if (seg->sn == kcp->rcv_nxt && kcp->nrcv_que < kcp->rcv_wnd) {
+			iqueue_del(&seg->node);
+			kcp->nrcv_buf--;
+			iqueue_add_tail(&seg->node, &kcp->rcv_queue);
+			kcp->nrcv_que++;
+			kcp->rcv_nxt++;
+		}	else {
+			break;
+		}
+	}
+
 	// fast recover
 	if (kcp->nrcv_que < kcp->rcv_wnd && recover) {
 		// ready to send back IKCP_CMD_WINS in ikcp_flush
@@ -484,9 +498,10 @@ void ikcp_parse_data(ikcpcb *kcp, IKCPSEG *newseg)
 	printf("rcv_nxt=%lu\n", kcp->rcv_nxt);
 #endif
 
+	// move available data from rcv_buf -> rcv_queue
 	while (! iqueue_is_empty(&kcp->rcv_buf)) {
 		IKCPSEG *seg = iqueue_entry(kcp->rcv_buf.next, IKCPSEG, node);
-		if (seg->sn == kcp->rcv_nxt) {
+		if (seg->sn == kcp->rcv_nxt && kcp->nrcv_que < kcp->rcv_wnd) {
 			iqueue_del(&seg->node);
 			kcp->nrcv_buf--;
 			iqueue_add_tail(&seg->node, &kcp->rcv_queue);
