@@ -23,7 +23,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 
-#ifndef __llvm__
+#ifndef __AVM3__
 #include <poll.h>
 #include <netinet/tcp.h>
 #endif
@@ -72,7 +72,7 @@ volatile IINT64 itimeclock = 0;
 /* default mode = 0, using timeGetTime in win32 instead of QPC */
 int itimemode = 0;
 
-#ifdef __llvm__
+#ifdef __AVM3__
 #ifdef __cplusplus
 extern "C" int usleep(useconds_t);
 #else
@@ -459,7 +459,7 @@ int ienable(int fd, int mode)
 			(char*)&value, sizeof(value));
 		break;
 	case ISOCK_NODELAY:
-		#ifndef __llvm__
+		#ifndef __AVM3__
 		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NODELAY, 
 			(char*)&value, sizeof(value));
 		#endif
@@ -493,7 +493,7 @@ int idisable(int fd, int mode)
 				(char*)&value, sizeof(value));
 		break;
 	case ISOCK_NODELAY:
-		#ifndef __llvm__
+		#ifndef __AVM3__
 		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NODELAY, 
 				(char*)&value, sizeof(value));
 		#endif
@@ -515,7 +515,7 @@ int ipollfd(int sock, int event, long millisec)
 {
 	int retval = 0;
 
-	#if defined(__unix) && (!defined(__llvm__))
+	#if defined(__unix) && (!defined(__AVM3__))
 	struct pollfd pfd;
 	
 	pfd.fd = sock;
@@ -534,7 +534,7 @@ int ipollfd(int sock, int event, long millisec)
 		retval |= ISOCK_ESEND;
 	if ((event & ISOCK_ERROR) && (pfd.revents & POLLERR)) 
 		retval |= ISOCK_ERROR;
-	#elif defined(__llvm__) 
+	#elif defined(__AVM3__) 
 	struct timeval tmx = { 0, 0 };
 	fd_set fdr, fdw, fde;
 	fd_set *pr = NULL, *pw = NULL, *pe = NULL;
@@ -706,16 +706,16 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 	int i;
 
 	if (workmem == NULL) {
-		#if defined(__unix) && (!defined(__llvm__))
+		#if defined(__unix) && (!defined(__AVM3__))
 		return count * sizeof(struct pollfd);
-		#elif defined(__llvm__)
+		#elif defined(__AVM3__)
 		return sizeof(fd_set) * 3;
 		#else
 		return (count + 1) * sizeof(int) * 3;
 		#endif
 	}	
 	else {
-		#if defined(__unix) && (!defined(__llvm__))
+		#if defined(__unix) && (!defined(__AVM3__))
 		struct pollfd *pfds = (struct pollfd*)workmem;
 
 		for (i = 0; i < count; i++) {
@@ -743,7 +743,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 			if (revents[i]) retval++;
 		}
 
-		#elif defined(__llvm__)
+		#elif defined(__AVM3__)
 		struct timeval tmx = { 0, 0 };
 		fd_set *fdr = NULL, *fdw = NULL, *fde = NULL;
 		fd_set *dr = NULL, *dw = NULL, *de = NULL;
@@ -1267,11 +1267,11 @@ int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 #if defined(_WIN32) || defined(__unix)
 #define IHAVE_SELECT
 #endif
-#if defined(__unix) && (!defined(__llvm__))
+#if defined(__unix) && (!defined(__AVM3__))
 #define IHAVE_POLL
 #endif
 #if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-#ifndef __llvm__
+#ifndef __AVM3__
 #define IHAVE_KEVENT
 #endif
 #endif
@@ -4112,7 +4112,7 @@ int iposix_thread_affinity(iPosixThread *thread, unsigned int cpumask)
 	#if defined(_WIN32)
 		DWORD mask = (DWORD)cpumask;
 		if (SetThreadAffinityMask(thread->th, mask) == 0) retval = -2;
-	#elif defined(__CYGWIN__) || defined(__llvm__)
+	#elif defined(__CYGWIN__) || defined(__AVM3__)
 		retval = -3;
 	#elif defined(__linux__) || defined(__ANDROID__)
 		cpu_set_t mask;
