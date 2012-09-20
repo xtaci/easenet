@@ -403,7 +403,7 @@ static void ikcp_parse_ack(ikcpcb *kcp, IUINT32 sn)
 		next = p->next;
 		if (sn == seg->sn) {
 			iqueue_del(p);
-			ikmem_free(seg);
+			ikcp_segment_delete(kcp, seg);
 			kcp->nsnd_buf--;
 			break;
 		}
@@ -425,7 +425,7 @@ static void ikcp_parse_una(ikcpcb *kcp, IUINT32 una)
 		next = p->next;
 		if (itimediff(una, seg->sn) > 0) {
 			iqueue_del(p);
-			ikmem_free(seg);
+			ikcp_segment_delete(kcp, seg);
 			kcp->nsnd_buf--;
 		}	else {
 			break;
@@ -680,7 +680,7 @@ void ikcp_flush(ikcpcb *kcp)
 	char *buffer = kcp->buffer;
 	char *ptr = buffer;
 	int count, size, i;
-	IUINT32 cwnd;
+	IUINT32 cwnd, resent;
 	struct IQUEUEHEAD *p;
 	int lost = 0;
 	IKCPSEG seg;
@@ -787,6 +787,9 @@ void ikcp_flush(ikcpcb *kcp)
 		newseg->xmit = 0;
 	}
 
+	// calculate resent
+	resent = (kcp->fastresend > 0)? (IUINT32)kcp->fastresend : 0xffffffff;
+
 	// flush data segments
 	for (p = kcp->snd_buf.next; p != &kcp->snd_buf; p = p->next) {
 		IKCPSEG *segment = iqueue_entry(p, IKCPSEG, node);
@@ -808,13 +811,11 @@ void ikcp_flush(ikcpcb *kcp)
 			segment->resendts = current + segment->rto;
 			lost = 1;
 		}
-		else if (kcp->fastresend > 0) {
-			if ((int)segment->fastack >= kcp->fastresend) {
-				needsend = 1;
-				segment->xmit++;
-				segment->fastack = 0;
-				segment->resendts = current + segment->rto;
-			}
+		else if (segment->fastack >= resent) {
+			needsend = 1;
+			segment->xmit++;
+			segment->fastack = 0;
+			segment->resendts = current + segment->rto;
 		}
 
 		if (needsend) {
@@ -837,10 +838,10 @@ void ikcp_flush(ikcpcb *kcp)
 				memcpy(ptr, segment->data, segment->len);
 				ptr += segment->len;
 			}
-		}
 
-		if (segment->xmit >= IKCP_DEADLINK) {
-			kcp->state = -1;
+			if (segment->xmit >= IKCP_DEADLINK) {
+				kcp->state = -1;
+			}
 		}
 	}
 
