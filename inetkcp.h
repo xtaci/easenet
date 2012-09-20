@@ -59,6 +59,7 @@ struct IKCPCB
 	struct IQUEUEHEAD snd_buf;
 	struct IQUEUEHEAD rcv_buf;
 	ivector_t *acklist;
+	IUINT32 ackcount;
 	void *user;
 	char *buffer;
 	int fastresend;

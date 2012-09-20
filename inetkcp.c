@@ -142,6 +142,7 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->nrcv_que = 0;
 	kcp->nsnd_que = 0;
 	kcp->state = 0;
+	kcp->ackcount = 0;
 	kcp->rx_srtt = 0;
 	kcp->rx_rttval = 0;
 	kcp->rx_rto = IKCP_RTO_DEF;
@@ -199,6 +200,7 @@ void ikcp_release(ikcpcb *kcp)
 		kcp->nsnd_buf = 0;
 		kcp->nrcv_que = 0;
 		kcp->nsnd_que = 0;
+		kcp->ackcount = 0;
 		kcp->buffer = NULL;
 		kcp->acklist = NULL;
 		ikmem_free(kcp);
@@ -329,7 +331,9 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 	assert(kcp->mss > 0);
 	if (len < 0) return -1;
 
-	count = (len + kcp->mss - 1) / kcp->mss;
+	if (len <= kcp->mss) count = 1;
+	else count = (len + kcp->mss - 1) / kcp->mss;
+
 	if (count > 255) return -2;
 
 	if (count == 0) count = 1;
@@ -438,20 +442,23 @@ static void ikcp_parse_una(ikcpcb *kcp, IUINT32 una)
 //---------------------------------------------------------------------
 // ack append
 //---------------------------------------------------------------------
-static void ikcp_ack_push(ikcpcb *kcb, IUINT32 sn, IUINT32 ts)
+static void ikcp_ack_push(ikcpcb *kcp, IUINT32 sn, IUINT32 ts)
 {
-	iv_push(kcb->acklist, &sn, sizeof(sn));
-	iv_push(kcb->acklist, &ts, sizeof(ts));
+	size_t newsize = (kcp->ackcount + 1) * (sizeof(sn) * 2);
+	IUINT32 *ptr;
+	if (newsize > kcp->acklist->size) {
+		iv_resize(kcp->acklist, newsize);
+	}
+	ptr = (IUINT32*)kcp->acklist->data;
+	ptr += kcp->ackcount * 2;
+	ptr[0] = sn;
+	ptr[1] = ts;
+	kcp->ackcount++;
 }
 
-static int ikcp_ack_count(const ikcpcb *kcb)
+static void ikcp_ack_get(const ikcpcb *kcp, int p, IUINT32 *sn, IUINT32 *ts)
 {
-	return kcb->acklist->size / (sizeof(IUINT32) * 2);
-}
-
-static void ikcp_ack_get(const ikcpcb *kcb, int p, IUINT32 *sn, IUINT32 *ts)
-{
-	const IUINT32 *ptr = (const IUINT32*)kcb->acklist->data;
+	const IUINT32 *ptr = (const IUINT32*)kcp->acklist->data;
 	ptr += p * 2;
 	if (sn) sn[0] = ptr[0];
 	if (ts) ts[0] = ptr[1];
@@ -698,7 +705,7 @@ void ikcp_flush(ikcpcb *kcp)
 	seg.ts = 0;
 
 	// flush acknowledges
-	count = ikcp_ack_count(kcp);
+	count = kcp->ackcount;
 	for (i = 0; i < count; i++) {
 		size = (int)(ptr - buffer);
 		if (size > (int)kcp->mtu) {
@@ -709,7 +716,7 @@ void ikcp_flush(ikcpcb *kcp)
 		ptr = ikcp_encode_seg(ptr, &seg);
 	}
 
-	iv_resize(kcp->acklist, 0);
+	kcp->ackcount = 0;
 
 	// probe window size (if remote window size equals zero)
 	if (kcp->rmt_wnd == 0) {
