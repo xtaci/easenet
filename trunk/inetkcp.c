@@ -156,6 +156,8 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->ssthresh = IKCP_THRESH_INIT;
 	kcp->fastresend = 0;
 	kcp->nocwnd = 0;
+	kcp->output = NULL;
+	kcp->writelog = NULL;
 
 	return kcp;
 }
