@@ -1271,7 +1271,7 @@ int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 #define IHAVE_POLL
 #endif
 #if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-#ifndef __AVM3__
+#if (!defined(__AVM3__)) && (!defined(__AVM2__))
 #define IHAVE_KEVENT
 #endif
 #endif
