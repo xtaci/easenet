@@ -247,7 +247,7 @@ typedef SOCKET Socket;
 
 
 /* check ICLOCK_TYPE_REALTIME for using pthread_condattr_setclock */
-#if defined(__CYGWIN__) || defined(__imac__)
+#if defined(__CYGWIN__) || defined(__imac__) || defined(__AVM2__)
 	#define ICLOCK_TYPE_REALTIME
 #endif
 
