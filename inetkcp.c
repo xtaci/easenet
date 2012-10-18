@@ -156,6 +156,7 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->ssthresh = IKCP_THRESH_INIT;
 	kcp->fastresend = 0;
 	kcp->nocwnd = 0;
+	kcp->xmit = 0;
 	kcp->output = NULL;
 	kcp->writelog = NULL;
 
@@ -812,6 +813,7 @@ void ikcp_flush(ikcpcb *kcp)
 		else if (itimediff(current, segment->resendts) >= 0) {
 			needsend = 1;
 			segment->xmit++;
+			kcp->xmit++;
 			if (kcp->nodelay == 0) {
 				segment->rto += kcp->rx_rto;
 			}	else {
