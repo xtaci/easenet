@@ -49,7 +49,7 @@ struct IKCPCB
 	IUINT32 ts_recent, ts_lastack, ssthresh;
 	IINT32 rx_rttval, rx_srtt, rx_rto, rx_minrto;
 	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe;
-	IUINT32 current, interval, ts_flush;
+	IUINT32 current, interval, ts_flush, xmit;
 	IUINT32 nrcv_buf, nsnd_buf;
 	IUINT32 nrcv_que, nsnd_que;
 	IUINT32 nodelay, updated;
