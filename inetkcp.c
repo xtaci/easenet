@@ -157,6 +157,7 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->fastresend = 0;
 	kcp->nocwnd = 0;
 	kcp->xmit = 0;
+    kcp->dead_link = IKCP_DEADLINK;
 	kcp->output = NULL;
 	kcp->writelog = NULL;
 
@@ -850,7 +851,7 @@ void ikcp_flush(ikcpcb *kcp)
 				ptr += segment->len;
 			}
 
-			if (segment->xmit >= IKCP_DEADLINK) {
+			if (segment->xmit >= kcp->dead_link) {
 				kcp->state = -1;
 			}
 		}
