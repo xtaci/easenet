@@ -129,10 +129,10 @@ static int inet_sockpair_imp(int fds[2])
 	addr1.sin_addr.s_addr = htonl(0x7f000001);
 #endif
 
-	if (ibind(listener, (struct sockaddr*)&addr1))
+	if (ibind(listener, (struct sockaddr*)&addr1, 0))
 		goto failed;
 
-	if (isockname(listener, (struct sockaddr*)&addr1))
+	if (isockname(listener, (struct sockaddr*)&addr1, NULL))
 		goto failed;
 	
 	if (listen(listener, 1))
@@ -141,16 +141,16 @@ static int inet_sockpair_imp(int fds[2])
 	if ((sock[0] = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		goto failed;
 
-	if (iconnect(sock[0], (struct sockaddr*)&addr1))
+	if (iconnect(sock[0], (struct sockaddr*)&addr1, 0))
 		goto failed;
 
 	if ((sock[1] = accept(listener, 0, 0)) < 0)
 		goto failed;
 
-	if (ipeername(sock[0], (struct sockaddr*)&addr1))
+	if (ipeername(sock[0], (struct sockaddr*)&addr1, NULL))
 		goto failed;
 
-	if (isockname(sock[1], (struct sockaddr*)&addr2))
+	if (isockname(sock[1], (struct sockaddr*)&addr2, NULL))
 		goto failed;
 
 	if (addr1.sin_addr.s_addr != addr2.sin_addr.s_addr ||
@@ -449,8 +449,8 @@ int itmc_connect(struct ITMCLIENT *client, const struct sockaddr *addr)
 
 	ienable(client->sock, ISOCK_NOBLOCK);
 	ienable(client->sock, ISOCK_REUSEADDR);
-	iconnect(client->sock, addr);
-	isockname(client->sock, &client->local);
+	iconnect(client->sock, addr, 0);
+	isockname(client->sock, &client->local, 0);
 	client->state = ITMC_STATE_CONNECTING;
 
 	return 0;
@@ -480,7 +480,7 @@ int itmc_assign(struct ITMCLIENT *client, int sock)
 
 	ienable(client->sock, ISOCK_NOBLOCK);
 	ienable(client->sock, ISOCK_REUSEADDR);
-	isockname(client->sock, &client->local);
+	isockname(client->sock, &client->local, 0);
 	client->state = ITMC_STATE_ESTABLISHED;
 
 	return 0;
@@ -939,7 +939,7 @@ int itms_startup(struct ITMHOST *host, int port)
 	memset(&local, 0, sizeof(local));
 	ienable(host->sock, ISOCK_REUSEADDR);
 	isockaddr_makeup(&local, "0.0.0.0", port);
-	if (ibind(host->sock, &local) != 0) {
+	if (ibind(host->sock, &local, 0) != 0) {
 		iclose(host->sock);
 		host->sock = -1;
 		return -2;
@@ -950,7 +950,7 @@ int itms_startup(struct ITMHOST *host, int port)
 		host->sock = -1;
 		return -3;
 	}
-	isockname(host->sock, &local);
+	isockname(host->sock, &local, 0);
 	host->port = isockaddr_get_port(&local);
 	host->index = 1;
 	host->count = 0;
@@ -1014,7 +1014,7 @@ void itms_process(struct ITMHOST *host)
 	current = iclock();
 
 	for (; ; ) {
-		sock = iaccept(host->sock, &remote);
+		sock = iaccept(host->sock, &remote, NULL);
 		if (sock < 0) break;
 		if (host->count >= 0x10000) {
 			iclose(sock);
