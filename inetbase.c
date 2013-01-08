@@ -319,9 +319,10 @@ int iclose(int sock)
 }
 
 /* connect to remote */
-int iconnect(int sock, const struct sockaddr *addr)
+int iconnect(int sock, const struct sockaddr *addr, int addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+	if (addrlen > 0) len = addrlen;
 	return connect(sock, addr, len);
 }
 
@@ -332,9 +333,10 @@ int ishutdown(int sock, int mode)
 }
 
 /* bind to local address */
-int ibind(int sock, const struct sockaddr *addr)
+int ibind(int sock, const struct sockaddr *addr, int addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+	if (addrlen > 0) len = (DSOCKLEN_T)addrlen;
 	return bind(sock, addr, len);
 }
 
@@ -345,10 +347,16 @@ int ilisten(int sock, int count)
 }
 
 /* accept connection */
-int iaccept(int sock, struct sockaddr *addr)
+int iaccept(int sock, struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
-	return (int)accept(sock, addr, &len);
+	int hr;
+	if (addrlen) {
+		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
+	}
+	hr = (int)accept(sock, addr, &len);
+	if (addrlen) addrlen[0] = (int)len;
+	return hr;
 }
 
 /* get error number */
@@ -364,32 +372,37 @@ int ierrno(void)
 }
 
 /* send data */
-int isend(int sock, const void *buf, long size, int mode)
+long isend(int sock, const void *buf, long size, int mode)
 {
-	return send(sock, (char*)buf, size, mode);
+	return (long)send(sock, (char*)buf, size, mode);
 }
 
 /* receive data */
-int irecv(int sock, void *buf, long size, int mode)
+long irecv(int sock, void *buf, long size, int mode)
 {
-	return recv(sock, (char*)buf, size, mode);
+	return (long)recv(sock, (char*)buf, size, mode);
 }
 
 /* send to remote */
-int isendto(int sock, const void *buf, long size, int mode, 
-			const struct sockaddr *addr)
+long isendto(int sock, const void *buf, long size, int mode, 
+			const struct sockaddr *addr, int addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
-	return sendto(sock, (char*)buf, size, mode, addr, len);
+	if (addrlen > 0) len = (DSOCKLEN_T)addrlen;
+	return (long)sendto(sock, (char*)buf, size, mode, addr, len);
 }
 
 /* recvfrom */
-int irecvfrom(int sock, void *buf, long size, int mode, 
-			struct sockaddr *addr)
+long irecvfrom(int sock, void *buf, long size, int mode, 
+			struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
-	int retval = 0;
-	retval = recvfrom(sock, (char*)buf, size, mode, addr, &len);
+	long retval = 0;
+	if (addrlen) {
+		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
+	}
+	retval = (long)recvfrom(sock, (char*)buf, size, mode, addr, &len);
+	if (addrlen) addrlen[0] = (int)len;
 	return retval;
 }
 
@@ -420,22 +433,33 @@ int igetsockopt(int sock, int level, int optname, char *optval, int *optlen)
 	int retval;
 	retval = getsockopt(sock, level, optname, optval, &len);
 	if (optlen) *optlen = len;
-
 	return retval;
 }
 
 /* get socket name */
-int isockname(int sock, struct sockaddr *addr)
+int isockname(int sock, struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
-	return getsockname(sock, addr, &len);
+	int hr;
+	if (addrlen) {
+		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
+	}
+	hr = getsockname(sock, addr, &len);
+	if (addrlen) addrlen[0] = (int)len;
+	return hr;
 }
 
 /* get peer name */
-int ipeername(int sock, struct sockaddr *addr)
+int ipeername(int sock, struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
-	return getpeername(sock, addr, &len);
+	int hr;
+	if (addrlen) {
+		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
+	}
+	hr = getpeername(sock, addr, &len);
+	if (addrlen) addrlen[0] = (int)len;
+	return hr;
 }
 
 

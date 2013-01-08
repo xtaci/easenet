@@ -495,36 +495,36 @@ int isocket(int family, int type, int protocol);
 int iclose(int sock);
 
 /* connect to */
-int iconnect(int sock, const struct sockaddr *addr);
+int iconnect(int sock, const struct sockaddr *addr, int addrlen);
 
 /* shutdown */
 int ishutdown(int sock, int mode);
 
 /* bind */
-int ibind(int sock, const struct sockaddr *addr);
+int ibind(int sock, const struct sockaddr *addr, int addrlen);
 
 /* listen */
 int ilisten(int sock, int count);
 
 /* accept */
-int iaccept(int sock, struct sockaddr *addr);
+int iaccept(int sock, struct sockaddr *addr, int *addrlen);
 
 /* get errno */
 int ierrno(void);
 
 /* send */
-int isend(int sock, const void *buf, long size, int mode);
+long isend(int sock, const void *buf, long size, int mode);
 
 /* receive */
-int irecv(int sock, void *buf, long size, int mode);
+long irecv(int sock, void *buf, long size, int mode);
 
 /* sendto */
-int isendto(int sock, const void *buf, long size, int mode, 
-	const struct sockaddr *addr);
+long isendto(int sock, const void *buf, long size, int mode, 
+	const struct sockaddr *addr, int addrlen);
 
 /* recvfrom */
-int irecvfrom(int sock, void *buf, long size, int mode, 
-	struct sockaddr *addr);
+long irecvfrom(int sock, void *buf, long size, int mode, 
+	struct sockaddr *addr, int *addrlen);
 
 /* ioctl */
 int iioctl(int sock, unsigned long cmd, unsigned long *argp);
@@ -538,10 +538,10 @@ int igetsockopt(int sock, int level, int optname, char *optval,
 	int *optlen);
 
 /* get socket name */
-int isockname(int sock, struct sockaddr *addr);
+int isockname(int sock, struct sockaddr *addr, int *addrlen);
 
 /* get peer name */
-int ipeername(int sock, struct sockaddr *addr);
+int ipeername(int sock, struct sockaddr *addr, int *addrlen);
 
 
 /*===================================================================*/
