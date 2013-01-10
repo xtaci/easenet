@@ -12,8 +12,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <time.h>
+#include <ctype.h>
+#include <assert.h>
 
 #ifdef __unix
 #include <netdb.h>
@@ -322,6 +323,15 @@ int iclose(int sock)
 int iconnect(int sock, const struct sockaddr *addr, int addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+#ifdef _WIN32
+	unsigned char remote[32];
+	if (addrlen == 24) {
+		memset(remote, 0, 28);
+		memcpy(remote, addr, 24);
+		addrlen = 28;
+		addr = (const struct sockaddr *)remote;
+	}
+#endif
 	if (addrlen > 0) len = addrlen;
 	return connect(sock, addr, len);
 }
@@ -336,6 +346,15 @@ int ishutdown(int sock, int mode)
 int ibind(int sock, const struct sockaddr *addr, int addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+#ifdef _WIN32
+	unsigned char remote[32];
+	if (addrlen == 24) {
+		memset(remote, 0, 28);
+		memcpy(remote, addr, 24);
+		addrlen = 28;
+		addr = (const struct sockaddr *)remote;
+	}
+#endif
 	if (addrlen > 0) len = (DSOCKLEN_T)addrlen;
 	return bind(sock, addr, len);
 }
@@ -350,11 +369,27 @@ int ilisten(int sock, int count)
 int iaccept(int sock, struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+	struct sockaddr *target = addr;
 	int hr;
+#ifdef _WIN32
+	unsigned char remote[32];
+#endif
 	if (addrlen) {
 		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
 	}
-	hr = (int)accept(sock, addr, &len);
+#ifdef _WIN32
+	if (len == 24) {
+		target = (struct sockaddr *)remote;
+		len = 28;
+	}
+#endif
+	hr = (int)accept(sock, target, &len);
+#ifdef _WIN32
+	if (target != addr) {
+		memcpy(addr, remote, 24);
+		len = 24;
+	}
+#endif
 	if (addrlen) addrlen[0] = (int)len;
 	return hr;
 }
@@ -388,6 +423,15 @@ long isendto(int sock, const void *buf, long size, int mode,
 			const struct sockaddr *addr, int addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+#ifdef _WIN32
+	unsigned char remote[32];
+	if (addrlen == 24) {
+		memset(remote, 0, 28);
+		memcpy(remote, addr, 24);
+		addrlen = 28;
+		addr = (const struct sockaddr *)remote;
+	}
+#endif
 	if (addrlen > 0) len = (DSOCKLEN_T)addrlen;
 	return (long)sendto(sock, (char*)buf, size, mode, addr, len);
 }
@@ -397,13 +441,29 @@ long irecvfrom(int sock, void *buf, long size, int mode,
 			struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
-	long retval = 0;
+	struct sockaddr *target = addr;
+	int hr;
+#ifdef _WIN32
+	unsigned char remote[32];
+#endif
 	if (addrlen) {
 		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
 	}
-	retval = (long)recvfrom(sock, (char*)buf, size, mode, addr, &len);
+#ifdef _WIN32
+	if (len == 24) {
+		target = (struct sockaddr *)remote;
+		len = 28;
+	}
+#endif
+	hr = (int)recvfrom(sock, (char*)buf, size, mode, target, &len);
+#ifdef _WIN32
+	if (target != addr) {
+		memcpy(addr, remote, 24);
+		len = 24;
+	}
+#endif
 	if (addrlen) addrlen[0] = (int)len;
-	return retval;
+	return hr;
 }
 
 /* i/o control */
@@ -440,11 +500,27 @@ int igetsockopt(int sock, int level, int optname, char *optval, int *optlen)
 int isockname(int sock, struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+	struct sockaddr *target = addr;
 	int hr;
+#ifdef _WIN32
+	unsigned char remote[32];
+#endif
 	if (addrlen) {
 		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
 	}
-	hr = getsockname(sock, addr, &len);
+#ifdef _WIN32
+	if (len == 24) {
+		target = (struct sockaddr *)remote;
+		len = 28;
+	}
+#endif
+	hr = (int)getsockname(sock, target, &len);
+#ifdef _WIN32
+	if (target != addr) {
+		memcpy(addr, remote, 24);
+		len = 24;
+	}
+#endif
 	if (addrlen) addrlen[0] = (int)len;
 	return hr;
 }
@@ -453,11 +529,27 @@ int isockname(int sock, struct sockaddr *addr, int *addrlen)
 int ipeername(int sock, struct sockaddr *addr, int *addrlen)
 {
 	DSOCKLEN_T len = sizeof(struct sockaddr);
+	struct sockaddr *target = addr;
 	int hr;
+#ifdef _WIN32
+	unsigned char remote[32];
+#endif
 	if (addrlen) {
 		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
 	}
-	hr = getpeername(sock, addr, &len);
+#ifdef _WIN32
+	if (len == 24) {
+		target = (struct sockaddr *)remote;
+		len = 28;
+	}
+#endif
+	hr = (int)getpeername(sock, target, &len);
+#ifdef _WIN32
+	if (target != addr) {
+		memcpy(addr, remote, 24);
+		len = 24;
+	}
+#endif
 	if (addrlen) addrlen[0] = (int)len;
 	return hr;
 }
@@ -4635,5 +4727,299 @@ char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst)
 
 	return dst;
 }
+
+
+/*===================================================================*/
+/* IPV4/IPV6 interfaces                                              */
+/*===================================================================*/
+#ifndef IM_IN6ADDRSZ
+#define	IM_IN6ADDRSZ	16
+#endif
+
+#ifndef IM_INT16SZ
+#define	IM_INT16SZ		2
+#endif
+
+#ifndef IM_INADDRSZ
+#define	IM_INADDRSZ		4
+#endif
+
+/* convert presentation format to network format */
+static int inet_pton4x(const char *src, unsigned char *dst)
+{
+	unsigned int val;
+	unsigned int digit;
+	int base, n;
+	unsigned char c;
+	unsigned int parts[4];
+	register unsigned int *pp = parts;
+	int pton = 1;
+	c = *src;
+	for (;;) {
+		if (!isdigit(c)) return -1;
+		val = 0; base = 10;
+		if (c == '0') {
+			c = *++src;
+			if (c == 'x' || c == 'X') base = 16, c = *++src;
+			else if (isdigit(c) && c != '9') base = 8;
+		}
+		if (pton && base != 10) return -1;
+		for (;;) {
+			if (isdigit(c)) {
+				digit = c - '0';
+				if (digit >= (unsigned int)base) break;
+				val = (val * base) + digit;
+				c = *++src;
+			}	else if (base == 16 && isxdigit(c)) {
+				digit = c + 10 - (islower(c) ? 'a' : 'A');
+				if (digit >= 16) break;
+				val = (val << 4) | digit;
+				c = *++src;
+			}	else {
+				break;
+			}
+		}
+		if (c == '.') {
+			if (pp >= parts + 3) return -1;
+			*pp++ = val;
+			c = *++src;
+		}	else {
+			break;
+		}
+	}
+
+	if (c != '\0' && !isspace(c)) return -1;
+
+	n = pp - parts + 1;
+	if (pton && n != 4) return -1;
+
+	switch (n) {
+	case 0: return -1;	
+	case 1:	break;
+	case 2:	
+		if (parts[0] > 0xff || val > 0xffffff) return -1;
+		val |= parts[0] << 24;
+		break;
+	case 3:	
+		if ((parts[0] | parts[1]) > 0xff || val > 0xffff) return -1;
+		val |= (parts[0] << 24) | (parts[1] << 16);
+		break;
+	case 4:	
+		if ((parts[0] | parts[1] | parts[2] | val) > 0xff) return -1;
+		val |= (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8);
+		break;
+	}
+	if (dst) {
+		val = htonl(val);
+		memcpy(dst, &val, IM_INADDRSZ);
+	}
+	return 0;
+}
+
+/* convert presentation format to network format */
+static int inet_pton6x(const char *src, unsigned char *dst)
+{
+	static const char xdigits_l[] = "0123456789abcdef";
+	static const char xdigits_u[] = "0123456789ABCDEF";
+	unsigned char tmp[IM_IN6ADDRSZ], *tp, *endp, *colonp;
+	const char *xdigits, *curtok;
+	unsigned int val;
+	int ch, saw_xdigit;
+
+	memset((tp = tmp), '\0', IM_IN6ADDRSZ);
+	endp = tp + IM_IN6ADDRSZ;
+	colonp = NULL;
+	if (*src == ':')
+		if (*++src != ':')
+			return -1;
+	curtok = src;
+	saw_xdigit = 0;
+	val = 0;
+	while ((ch = *src++) != '\0') {
+		const char *pch;
+		if ((pch = strchr((xdigits = xdigits_l), ch)) == NULL)
+			pch = strchr((xdigits = xdigits_u), ch);
+		if (pch != NULL) {
+			val <<= 4;
+			val |= (pch - xdigits);
+			if (val > 0xffff) return -1;
+			saw_xdigit = 1;
+			continue;
+		}
+		if (ch == ':') {
+			curtok = src;
+			if (!saw_xdigit) {
+				if (colonp) return -1;
+				colonp = tp;
+				continue;
+			} 
+			else if (*src == '\0') {
+				return -1;
+			}
+			if (tp + IM_INT16SZ > endp) return -1;
+			*tp++ = (unsigned char) (val >> 8) & 0xff;
+			*tp++ = (unsigned char) val & 0xff;
+			saw_xdigit = 0;
+			val = 0;
+			continue;
+		}
+		if (ch == '.' && ((tp + IM_INADDRSZ) <= endp) &&
+		    inet_pton4x(curtok, tp) > 0) {
+			tp += IM_INADDRSZ;
+			saw_xdigit = 0;
+			break;	
+		}
+		return -1;
+	}
+	if (saw_xdigit) {
+		if (tp + IM_INT16SZ > endp) return -1;
+		*tp++ = (unsigned char) (val >> 8) & 0xff;
+		*tp++ = (unsigned char) val & 0xff;
+	}
+	if (colonp != NULL) {
+		const int n = tp - colonp;
+		int i;
+		if (tp == endp) return -1;
+		for (i = 1; i <= n; i++) {
+			endp[- i] = colonp[n - i];
+			colonp[n - i] = 0;
+		}
+		tp = endp;
+	}
+	if (tp != endp) return -1;
+	memcpy(dst, tmp, IM_IN6ADDRSZ);
+	return 0;
+}
+
+/* convert presentation format to network format */
+static const char *
+inet_ntop4x(const unsigned char *src, char *dst, size_t size)
+{
+	char tmp[64];
+	size_t len;
+	len = sprintf(tmp, "%u.%u.%u.%u", src[0], src[1], src[2], src[3]);
+	if (len >= size) {
+		errno = ENOSPC;
+		return NULL;
+	}
+	memcpy(dst, tmp, len + 1);
+	return dst;
+}
+
+/* convert presentation format to network format */
+static const char *
+inet_ntop6x(const unsigned char *src, char *dst, size_t size)
+{
+	char tmp[64], *tp;
+	struct { int base, len; } best, cur;
+	unsigned int words[IM_IN6ADDRSZ / IM_INT16SZ];
+	int i, inc;
+
+	memset(words, '\0', sizeof(words));
+	best.base = best.len = 0;
+	cur.base = cur.len = 0;
+
+	for (i = 0; i < IM_IN6ADDRSZ; i++)
+		words[i / 2] |= (src[i] << ((1 - (i % 2)) << 3));
+
+	best.base = -1;
+	cur.base = -1;
+
+	for (i = 0; i < (IM_IN6ADDRSZ / IM_INT16SZ); i++) {
+		if (words[i] == 0) {
+			if (cur.base == -1) cur.base = i, cur.len = 1;
+			else cur.len++;
+		} 
+		else {
+			if (cur.base != -1) {
+				if (best.base == -1 || cur.len > best.len) best = cur;
+				cur.base = -1;
+			}
+		}
+	}
+	if (cur.base != -1) {
+		if (best.base == -1 || cur.len > best.len)
+			best = cur;
+	}
+	if (best.base != -1 && best.len < 2)
+		best.base = -1;
+
+	tp = tmp;
+	for (i = 0; i < (IM_IN6ADDRSZ / IM_INT16SZ); i++) {
+		if (best.base != -1 && i >= best.base &&
+			i < (best.base + best.len)) {
+			if (i == best.base)
+				*tp++ = ':';
+			continue;
+		}
+
+		if (i != 0) *tp++ = ':';
+		if (i == 6 && best.base == 0 &&
+			(best.len == 6 || (best.len == 5 && words[5] == 0xffff))) {
+			if (!inet_ntop4x(src+12, tp, sizeof(tmp) - (tp - tmp)))
+				return NULL;
+			tp += strlen(tp);
+			break;
+		}
+		inc = sprintf(tp, "%x", words[i]);
+		tp += inc;
+	}
+
+	if (best.base != -1 && (best.base + best.len) == 
+		(IM_IN6ADDRSZ / IM_INT16SZ)) 
+		*tp++ = ':';
+
+	*tp++ = '\0';
+
+	if ((size_t)(tp - tmp) > size) {
+		errno = ENOSPC;
+		return NULL;
+	}
+	memcpy(dst, tmp, tp - tmp);
+	return dst;
+}
+
+
+/* convert presentation format to network format */
+/* another inet_pton returns 0 for success, supports AF_INET/AF_INET6 */
+int isockaddr_pton(int af, const char *src, void *dst)
+{
+	switch (af) {
+	case AF_INET:
+		return inet_pton4x(src, (unsigned char*)dst);
+#if AF_INET6
+	case AF_INET6:
+		return inet_pton6x(src, (unsigned char*)dst);
+#endif
+	default:
+		if (af == -6) {
+			return inet_pton6x(src, (unsigned char*)dst);
+		}
+		errno = EAFNOSUPPORT;
+		return -1;
+	}
+}
+
+
+/* convert network format to presentation format */
+/* another inet_ntop, supports AF_INET/AF_INET6 */
+const char *isockaddr_ntop(int af, const void *src, char *dst, size_t size)
+{
+	switch (af) {
+	case AF_INET:
+		return inet_ntop4x((const unsigned char*)src, dst, size);
+	#ifdef AF_INET6
+	case AF_INET6:
+		return inet_ntop6x((const unsigned char*)src, dst, size);
+	#endif
+	default:
+		if (af == -6) {
+			return inet_ntop6x((const unsigned char*)src, dst, size);
+		}
+		errno = EAFNOSUPPORT;
+		return NULL;
+	}
+}
+
 
 

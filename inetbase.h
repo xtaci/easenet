@@ -91,6 +91,9 @@ typedef int socklen_t;
 #endif
 #include <windows.h>
 #include <winsock2.h>
+#ifdef AF_INET6
+#include <ws2tcpip.h>
+#endif
 #else
 #ifndef _XBOX
 #define _XBOX
@@ -103,6 +106,10 @@ typedef int socklen_t;
 
 #define IESOCKET		SOCKET_ERROR
 #define IEAGAIN			WSAEWOULDBLOCK
+
+#ifndef IPV6_V6ONLY
+#define IPV6_V6ONLY 27
+#endif
 
 #ifndef _WIN32
 #define _WIN32
@@ -904,6 +911,19 @@ IINT64 iposix_datetime(int utc);
 
 /* format date time */
 char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst);
+
+
+/*===================================================================*/
+/* IPV4/IPV6 interfaces                                              */
+/*===================================================================*/
+
+/* convert presentation format to network format */
+/* another inet_pton returns 0 for success, supports AF_INET/AF_INET6 */
+int isockaddr_pton(int af, const char *src, void *dst);
+
+/* convert network format to presentation format */
+/* another inet_ntop, supports AF_INET/AF_INET6 */
+const char *isockaddr_ntop(int af, const void *src, char *dst, size_t size);
 
 
 
