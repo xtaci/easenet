@@ -1288,11 +1288,11 @@ static int iproxy_poll(int sock, int event, long millisec)
 	retval = select(sock + 1, pr, pw, pe, (millisec >= 0)? &tmx : 0);
 	retval = 0;
 	if ((event & ISOCKPROXY_IN) && FD_ISSET(sock, &fdr))
-		event |= ISOCKPROXY_IN;
+		retval |= ISOCKPROXY_IN;
 	if ((event & ISOCKPROXY_OUT) && FD_ISSET(sock, &fdw)) 
-		event |= ISOCKPROXY_OUT;
+		retval |= ISOCKPROXY_OUT;
 	if ((event & ISOCKPROXY_ERR) && FD_ISSET(sock, &fde)) 
-		event |= ISOCKPROXY_ERR;
+		retval |= ISOCKPROXY_ERR;
 	#else
 	struct timeval tmx = { 0, 0 };
 	union { void *ptr; fd_set *fds; } p[3];
@@ -1488,8 +1488,19 @@ int iproxy_process(struct ISOCKPROXY *proxy)
 			&(proxy->remote) : &(proxy->proxyd);
 		retval = connect(proxy->socket, remote, sizeof(struct sockaddr));
 		if (retval == 0) proxy->next = ISOCKPROXY_CONNECTING;
-		else proxy->next = (iproxy_errno() == IEAGAIN)? 
-			ISOCKPROXY_CONNECTING : ISOCKPROXY_FAILED;	
+		else {
+			int error = iproxy_errno();
+			if (error == IEAGAIN) proxy->next = ISOCKPROXY_CONNECTING;
+		#ifdef EINPROGRESS
+			else if (error == EINPROGRESS) 
+				proxy->next = ISOCKPROXY_CONNECTING;
+		#endif
+		#ifdef WSAEINPROGRESS
+			else if (error == WSAEINPROGRESS) 
+				proxy->next = ISOCKPROXY_CONNECTING;
+		#endif
+			else proxy->next = ISOCKPROXY_FAILED;
+		}
 		if (proxy->next == ISOCKPROXY_FAILED) proxy->errorc = 1;
 	}
 

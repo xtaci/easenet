@@ -673,9 +673,9 @@ int ipollfd(int sock, int event, long millisec)
 	}
 	retval = select(sock + 1, pr, pw, pe, (millisec >= 0)? &tmx : 0);
 	retval = 0;
-	if ((event & ISOCK_ERECV) && FD_ISSET(sock, &fdr)) event |= ISOCK_ERECV;
-	if ((event & ISOCK_ESEND) && FD_ISSET(sock, &fdw)) event |= ISOCK_ESEND;
-	if ((event & ISOCK_ERROR) && FD_ISSET(sock, &fde)) event |= ISOCK_ERROR;
+	if ((event & ISOCK_ERECV) && FD_ISSET(sock, &fdr)) retval |= ISOCK_ERECV;
+	if ((event & ISOCK_ESEND) && FD_ISSET(sock, &fdw)) retval |= ISOCK_ESEND;
+	if ((event & ISOCK_ERROR) && FD_ISSET(sock, &fde)) retval |= ISOCK_ERROR;
 	#else
 	struct timeval tmx = { 0, 0 };
 	union { void *ptr; fd_set *fds; } p[3];
@@ -908,7 +908,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 			if (event & ISOCK_ERROR) {
 				if (FD_ISSET(fd, fde)) revent |= ISOCK_ERROR;
 			}
-			revents[i] = event;
+			revents[i] = revent & event;
 			if (revent) retval++;
 		}
 
@@ -961,7 +961,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 					if (fde[j + 1] == fd) { revent |= ISOCK_ERROR; break; }
 				}
 			}
-			revents[i] = revent;
+			revents[i] = revent & event;
 			if (revent) retval++;
 		}
 		#endif
