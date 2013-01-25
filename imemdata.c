@@ -2534,6 +2534,8 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 	char b[3];
 
 	if (size == 0) return 0;
+	if (size < 0) size = strlen(src);
+
 	if (src == NULL || dst == NULL) {
 		ilong nbytes;
 		nbytes = ((size + 7) / 4) * 3;
@@ -2653,6 +2655,7 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 	int index;
 
 	if (size == 0) return 0;
+	if (size < 0) size = strlen(src);
 
 	if (src == NULL || dst == NULL) {
 		ilong need = ((size + 15) / 8) * 5;
@@ -2711,6 +2714,9 @@ ilong ibase16_decode(const char *src, ilong size, void *dst)
 	const IUINT8 *in = (const IUINT8*)src;
 	IUINT8 *out = (IUINT8*)dst, word = 0, decode = 0;
 	int index = 0;
+
+	if (size == 0) return 0;
+	if (size < 0) size = strlen(src);
 
 	if (src == NULL || dst == NULL) 
 		return size >> 1;
