@@ -1421,7 +1421,7 @@ static inline void StringJoin(std::string &out, const StringList &src, const cha
 		if (i == 0) out = src[i];
 		else {
 			out += s;
-			out += out[i];
+			out += src[i];
 		}
 	}
 }
