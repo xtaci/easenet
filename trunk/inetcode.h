@@ -186,6 +186,10 @@ typedef struct CAsyncCore CAsyncCore;
 #define ASYNC_CORE_NODE_LISTEN4		3		// ipv4 listener
 #define ASYNC_CORE_NODE_LISTEN6		4		// ipv6 listener
 
+// Remote IP Validator: returns 1 to accept it, 0 to reject
+typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,
+	CAsyncCore *core, long listenhid, void *user);
+
 
 // new CAsyncCore object
 CAsyncCore* async_core_new(void);
@@ -224,6 +228,7 @@ long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr,
 	int addrlen, int header);
 
 
+
 // get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6
 int async_core_get_mode(const CAsyncCore *core, long hid);
 
@@ -235,6 +240,9 @@ void async_core_set_tag(CAsyncCore *core, long hid, long tag);
 
 // get send queue size
 long async_core_remain(const CAsyncCore *core, long hid);
+
+// set max_send_buffer_size and max_packet_size
+void async_core_limit(CAsyncCore *core, long maxbuff, long maxpktlen);
 
 
 // get first node
