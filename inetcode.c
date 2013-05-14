@@ -258,7 +258,6 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 
 	asyncsock->fd = -1;
 	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
-	asyncsock->hid = -1;
 	asyncsock->header = (header < 0 || header > 13)? 0 : header;
 	asyncsock->error = 0;
 
@@ -797,9 +796,10 @@ struct CAsyncCore
 	struct IMSTREAM msgs;
 	struct IQUEUEHEAD head;
 	struct IVECTOR *vector;
-	int (*check)(const struct sockaddr *rmt, int len, CAsyncCore *core, long hid);
 	ipolld pfd;
 	long bufsize;
+	long maxsize;
+	long maxbuff;
 	char *buffer;
 	char *data;
 	void *user;
@@ -809,6 +809,7 @@ struct CAsyncCore
 	IUINT32 current;
 	IUINT32 lastsec;
 	IUINT32 timeout;
+	CAsyncValidator validator;
 };
 
 
@@ -870,12 +871,14 @@ CAsyncCore* async_core_new(void)
 	core->count = 0;
 	core->timeout = 0;
 	core->index = 1;
-	core->check = NULL;
+	core->validator = NULL;
 	core->user = NULL;
 	core->data = (char*)core->vector->data;
 	core->buffer = core->data + core->bufsize + 64;
 	core->current = iclock();
 	core->lastsec = 0;
+	core->maxsize = ASYNC_SOCK_MAXSIZE;
+	core->maxbuff = 0;
 
 	return core;
 }
@@ -951,6 +954,7 @@ static long async_core_node_new(CAsyncCore *core)
 	sock->buffer = core->buffer;
 	sock->bufsize = core->bufsize;
 	sock->time = core->current;
+	sock->maxsize = core->maxsize;
 	iqueue_add_tail(&sock->node, &core->head);
 
 	core->count++;
@@ -1208,8 +1212,9 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 		return -4;
 	}
 
-	if (core->check) {
-		if (core->check(remote, addrlen, core, listen_hid) != 0) {
+	if (core->validator) {
+		void *user = core->user;
+		if (core->validator(remote, addrlen, core, listen_hid, user) == 0) {
 			iclose(fd);
 			return -5;
 		}
@@ -1494,6 +1499,10 @@ long async_core_send_vector(CAsyncCore *core, long hid, const void *vecptr[],
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	long hr;
 	if (sock == NULL) return -100;
+	if (core->maxbuff > 0 && sock->sendmsg.size > core->maxbuff) {
+		async_core_event_close(core, sock, 2005);
+		return -200;
+	}
 	hr = async_sock_send_vector(sock, vecptr, veclen, count, mask);
 	if (sock->sendmsg.size > 0 && sock->fd >= 0) {
 		if ((sock->mask & IPOLL_OUT) == 0) {
@@ -1638,6 +1647,17 @@ int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 	if (sock == NULL) return -1;
 	async_sock_rc4_set_rkey(sock, key, keylen);
 	return 0;
+}
+
+// set max_send_buffer_size and max_packet_size
+void async_core_limit(CAsyncCore *core, long maxbuff, long maxpktlen)
+{
+	if (maxbuff >= 0) {
+		core->maxbuff = maxbuff;
+	}
+	if (maxpktlen >= 0) {
+		core->maxsize = maxpktlen;
+	}
 }
 
 
