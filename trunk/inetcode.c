@@ -1,11 +1,10 @@
-/**********************************************************************
- *
- * inetcode.c - core interface of socket operation
- *
- * for more information, please see the readme file
- *
- **********************************************************************/
-
+//=====================================================================
+//
+// inetcode.c - core interface of socket operation
+//
+// for more information, please see the readme file
+//
+//=====================================================================
 #include "inetcode.h"
 
 #ifdef __unix
@@ -36,13 +35,14 @@
 #endif
 #endif
 
-
+#include <time.h>
+#include <sys/time.h>
 #include <assert.h>
 
 
-/*===================================================================*/
-/* Network Information                                               */
-/*===================================================================*/
+//=====================================================================
+// Network Information 
+//=====================================================================
 
 /* host name */
 char ihostname[IMAX_HOSTNAME];
@@ -178,6 +178,1467 @@ int inet_socketpair(int fds[2])
 	return -1;
 }
 
+
+//=====================================================================
+// CAsyncSock
+//=====================================================================
+#ifndef ASYNC_SOCK_BUFSIZE
+#define ASYNC_SOCK_BUFSIZE 0x4000
+#endif
+
+#ifndef ASYNC_SOCK_MAXSIZE
+#define ASYNC_SOCK_MAXSIZE 0x800000
+#endif
+
+// create a new asyncsock
+void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
+{
+	if (asyncsock == NULL) {
+		return;
+	}
+	asyncsock->fd = -1;
+	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
+	asyncsock->hid = -1;
+	asyncsock->tag = -1;
+	asyncsock->time = 0;
+	asyncsock->buffer = NULL;
+	asyncsock->header = 0;
+	asyncsock->rc4_send_x = -1;
+	asyncsock->rc4_send_y = -1;
+	asyncsock->rc4_recv_x = -1;
+	asyncsock->rc4_recv_y = -1;
+	asyncsock->external = NULL;
+	asyncsock->bufsize = 0;
+	asyncsock->maxsize = ASYNC_SOCK_MAXSIZE;
+	asyncsock->ipv6 = 0;
+	asyncsock->mask = 0;
+	asyncsock->error = 0;
+	iqueue_init(&asyncsock->node);
+	ims_init(&asyncsock->sendmsg, nodes, 0, 0);
+	ims_init(&asyncsock->recvmsg, nodes, 0, 0);
+}
+
+// delete asyncsock
+void async_sock_destroy(CAsyncSock *asyncsock)
+{
+	assert(asyncsock);
+
+	if (asyncsock == NULL) return;
+
+	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
+	if (asyncsock->buffer) {
+		if (asyncsock->buffer != asyncsock->external) {
+			ikmem_free(asyncsock->buffer);
+		}
+	}
+
+	asyncsock->buffer = NULL;
+	asyncsock->external = NULL;
+	asyncsock->bufsize = 0;
+	asyncsock->fd = -1;
+	asyncsock->hid = -1;
+	asyncsock->tag = -1;
+	asyncsock->error = 0;
+	asyncsock->buffer = NULL;
+	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
+	ims_destroy(&asyncsock->sendmsg);
+	ims_destroy(&asyncsock->recvmsg);
+	asyncsock->rc4_send_x = -1;
+	asyncsock->rc4_send_y = -1;
+	asyncsock->rc4_recv_x = -1;
+	asyncsock->rc4_recv_y = -1;
+}
+
+
+// connect to remote address
+int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
+	int addrlen, int header)
+{
+	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
+
+	asyncsock->fd = -1;
+	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
+	asyncsock->hid = -1;
+	asyncsock->header = (header < 0 || header > 13)? 0 : header;
+	asyncsock->error = 0;
+
+	ims_clear(&asyncsock->sendmsg);
+	ims_clear(&asyncsock->recvmsg);
+
+	if (asyncsock->buffer == NULL) {
+		if (asyncsock->external == NULL) {
+			asyncsock->buffer = (char*)ikmem_malloc(ASYNC_SOCK_BUFSIZE);
+			if (asyncsock->buffer == NULL) return -1;
+			asyncsock->bufsize = ASYNC_SOCK_BUFSIZE;
+		}	else {
+			asyncsock->buffer = asyncsock->external;
+		}
+	}
+
+	asyncsock->rc4_send_x = -1;
+	asyncsock->rc4_send_y = -1;
+	asyncsock->rc4_recv_x = -1;
+	asyncsock->rc4_recv_y = -1;
+	
+	if (addrlen <= 20) {
+		asyncsock->fd = isocket(AF_INET, SOCK_STREAM, 0);
+		asyncsock->ipv6 = 0;
+	}	else {
+		asyncsock->fd = isocket(AF_INET6, SOCK_STREAM, 0);
+		asyncsock->ipv6 = 1;
+	}
+
+	if (asyncsock->fd < 0) {
+		asyncsock->error = ierrno();
+		return -2;
+	}
+
+	ienable(asyncsock->fd, ISOCK_NOBLOCK);
+	ienable(asyncsock->fd, ISOCK_REUSEADDR);
+
+	if (iconnect(asyncsock->fd, remote, addrlen) != 0) {
+		int hr = ierrno();
+		if (hr != IEAGAIN) {
+			iclose(asyncsock->fd);
+			asyncsock->fd = -1;
+			asyncsock->error = hr;
+			return -3;
+		}
+	}
+
+	asyncsock->state = ASYNC_SOCK_STATE_CONNECTING;
+
+	return 0;
+}
+
+// assign a new socket
+int async_sock_assign(CAsyncSock *asyncsock, int sock, int header)
+{
+	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
+	asyncsock->fd = -1;
+	asyncsock->header = (header < 0 || header > 13)? 0 : header;
+
+	if (asyncsock->buffer == NULL) {
+		if (asyncsock->external == NULL) {
+			asyncsock->buffer = (char*)ikmem_malloc(ASYNC_SOCK_BUFSIZE);
+			if (asyncsock->buffer == NULL) return -1;
+			asyncsock->bufsize = ASYNC_SOCK_BUFSIZE;
+		}	else {
+			asyncsock->buffer = asyncsock->external;
+		}
+	}
+
+	asyncsock->rc4_send_x = -1;
+	asyncsock->rc4_send_y = -1;
+	asyncsock->rc4_recv_x = -1;
+	asyncsock->rc4_recv_y = -1;
+
+	ims_clear(&asyncsock->sendmsg);
+	ims_clear(&asyncsock->recvmsg);
+
+	asyncsock->fd = sock;
+	asyncsock->error = 0;
+
+	ienable(asyncsock->fd, ISOCK_NOBLOCK);
+	ienable(asyncsock->fd, ISOCK_REUSEADDR);
+
+	asyncsock->state = ASYNC_SOCK_STATE_ESTAB;
+
+	return 0;
+}
+
+// close socket
+void async_sock_close(CAsyncSock *asyncsock)
+{
+	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
+	asyncsock->fd = -1;
+	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
+	asyncsock->rc4_send_x = -1;
+	asyncsock->rc4_send_y = -1;
+	asyncsock->rc4_recv_x = -1;
+	asyncsock->rc4_recv_y = -1;
+}
+
+// try connect
+static int async_sock_try_connect(CAsyncSock *asyncsock)
+{
+	int event;
+	if (asyncsock->state != ASYNC_SOCK_STATE_CONNECTING) 
+		return 0;
+	event = ISOCK_ESEND | ISOCK_ERROR;
+	event = ipollfd(asyncsock->fd, event, 0);
+	if (event & ISOCK_ERROR) {
+		return -1;
+	}	else
+	if (event & ISOCK_ESEND) {
+		asyncsock->state = ASYNC_SOCK_STATE_ESTAB;
+	}
+	return 0;
+}
+
+// try send
+static int async_sock_try_send(CAsyncSock *asyncsock)
+{
+	void *ptr;
+	char *flat;
+	long size;
+	int retval;
+
+	if (asyncsock->state != ASYNC_SOCK_STATE_ESTAB) return 0;
+
+	while (1) {
+		size = ims_flat(&asyncsock->sendmsg, &ptr);
+		if (size <= 0) break;
+		flat = (char*)ptr;
+		retval = isend(asyncsock->fd, flat, size, 0);
+		if (retval < 0) {
+			retval = ierrno();
+			if (retval == IEAGAIN) retval = 0;
+			else {
+				asyncsock->error = retval;
+				return -1;
+			}
+		}
+		ims_drop(&asyncsock->sendmsg, retval);
+	}
+	return 0;
+}
+
+// try receive
+static int async_sock_try_recv(CAsyncSock *asyncsock)
+{
+	unsigned char *buffer = (unsigned char*)asyncsock->buffer;
+	long bufsize = asyncsock->bufsize;
+	int retval;
+	if (asyncsock->state != ASYNC_SOCK_STATE_ESTAB) return 0;
+	while (1) {
+		retval = irecv(asyncsock->fd, buffer, bufsize, 0);
+		if (retval < 0) {
+			retval = ierrno();
+			if (retval == IEAGAIN) break;
+			else { 
+				asyncsock->error = retval;
+				return -2;
+			}
+		}	else 
+		if (retval == 0) {
+			asyncsock->error = 0;
+			return -1;
+		}
+		if (asyncsock->rc4_recv_x >= 0 && asyncsock->rc4_recv_y >= 0) {
+			icrypt_rc4_crypt(asyncsock->rc4_recv_box, &asyncsock->rc4_recv_x,
+				&asyncsock->rc4_recv_y, buffer, buffer, retval);
+		}
+		ims_write(&asyncsock->recvmsg, buffer, retval);
+		if (retval < bufsize) break;
+	}
+	return 0;
+}
+
+// update
+int async_sock_update(CAsyncSock *asyncsock, int what)
+{
+	int hr = 0;
+	if (what & 1) {
+		hr = async_sock_try_recv(asyncsock);
+		if (hr != 0) return hr;
+	}
+	if (what & 2) {
+		hr = async_sock_try_send(asyncsock);
+		if (hr != 0) return hr;
+	}
+	if (what & 4) {
+		hr = async_sock_try_connect(asyncsock);
+		if (hr != 0) return hr;
+	}
+	return 0;
+}
+
+// process
+void async_sock_process(CAsyncSock *asyncsock)
+{
+	if (asyncsock->state != ASYNC_SOCK_STATE_CLOSED) {
+		if (asyncsock->state == ASYNC_SOCK_STATE_CONNECTING) {
+			if (async_sock_try_connect(asyncsock) != 0) {
+				async_sock_close(asyncsock);
+				return;
+			}
+		}	
+		if (asyncsock->state == ASYNC_SOCK_STATE_ESTAB) {
+			if (async_sock_try_send(asyncsock) != 0) {
+				async_sock_close(asyncsock);
+				return;
+			}
+			if (async_sock_try_recv(asyncsock) != 0) {
+				async_sock_close(asyncsock);
+				return;
+			}
+		}
+	}
+}
+
+// get state
+int async_sock_state(const CAsyncSock *asyncsock)
+{
+	return asyncsock->state;
+}
+
+// get fd
+int async_sock_fd(const CAsyncSock *asyncsock)
+{
+	return asyncsock->fd;
+}
+
+// get how many bytes remain in the send buffer
+long async_sock_remain(const CAsyncSock *asyncsock)
+{
+	return asyncsock->sendmsg.size;
+}
+
+
+// header size
+static const int async_sock_head_len[14] = 
+	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4, 0 };
+
+// header increasement
+static const int async_sock_head_inc[14] = 
+	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0, 0 };
+
+// peek size
+static inline IUINT32
+async_sock_read_size(const CAsyncSock *asyncsock)
+{
+	unsigned char dsize[4];
+	IUINT32 len;
+	IUINT8 len8;
+	IUINT16 len16;
+	IUINT32 len32;
+	int hdrlen;
+	int hdrinc;
+	int header;
+
+	assert(asyncsock);
+
+	hdrlen = async_sock_head_len[asyncsock->header];
+	hdrinc = async_sock_head_inc[asyncsock->header];
+
+	if (asyncsock->header == 13) {
+		len = (unsigned long)asyncsock->recvmsg.size;
+		if (len > ASYNC_SOCK_BUFSIZE) return ASYNC_SOCK_BUFSIZE;
+		return (long)len;
+	}
+
+	len = (unsigned short)ims_peek(&asyncsock->recvmsg, dsize, hdrlen);
+	if (len < (unsigned long)hdrlen) return 0;
+
+	if (asyncsock->header != ITMH_DWORDMASK) {
+		header = (asyncsock->header < 6)? 
+			asyncsock->header : asyncsock->header - 6;
+	}	else {
+		header = ITMH_DWORDLSB;
+	}
+
+	switch (header) {
+	case ITMH_WORDLSB: 
+		idecode16u_lsb((char*)dsize, &len16); 
+		len = len16;
+		break;
+	case ITMH_WORDMSB:
+		idecode16u_msb((char*)dsize, &len16); 
+		len = len16;
+		break;
+	case ITMH_DWORDLSB:
+		idecode32u_lsb((char*)dsize, &len32);
+		if (asyncsock->header == ITMH_DWORDMASK) len32 &= 0xffffff;
+		len = len32;
+		break;
+	case ITMH_DWORDMSB:
+		idecode32u_msb((char*)dsize, &len32);
+		len = len32;
+		break;
+	case ITMH_BYTELSB:
+		idecode8u((char*)dsize, &len8);
+		len = len8;
+		break;
+	case ITMH_BYTEMSB:
+		idecode8u((char*)dsize, &len8);
+		len = len8;
+		break;
+	}
+
+	len += hdrinc;
+
+	return len;
+}
+
+// write size
+static inline int 
+async_sock_write_size(const CAsyncSock *asyncsock, long size,
+	long mask, char *out)
+{
+	IUINT32 header, len;
+	int hdrlen;
+	int hdrinc;
+
+	assert(asyncsock);
+
+	if (asyncsock->header == 13) return 0;
+
+	hdrlen = async_sock_head_len[asyncsock->header];
+	hdrinc = async_sock_head_inc[asyncsock->header];
+
+	if (asyncsock->header != ITMH_DWORDMASK) {
+		len = (IUINT32)size + hdrlen - hdrinc;
+		header = (asyncsock->header < 6)? asyncsock->header : 
+			asyncsock->header - 6;
+		switch (header) {
+		case ITMH_WORDLSB:
+			iencode16u_lsb((char*)out, (IUINT16)len);
+			break;
+		case ITMH_WORDMSB:
+			iencode16u_msb((char*)out, (IUINT16)len);
+			break;
+		case ITMH_DWORDLSB:
+			iencode32u_lsb((char*)out, (IUINT32)len);
+			break;
+		case ITMH_DWORDMSB:
+			iencode32u_msb((char*)out, (IUINT32)len);
+			break;
+		case ITMH_BYTELSB:
+			iencode8u((char*)out, (IUINT8)len);
+			break;
+		case ITMH_BYTEMSB:
+			iencode8u((char*)out, (IUINT8)len);
+			break;
+		}
+	}	else {
+		len = (IUINT32)size + hdrlen - hdrinc;
+		len = (len & 0xffffff) | ((((IUINT32)mask) & 0xff) << 24);
+		iencode32u_lsb((char*)out, (IUINT32)len);
+	}
+
+	return hdrlen;
+}
+
+// send vector
+long async_sock_send_vector(CAsyncSock *asyncsock, const void *vecptr[],
+	const long veclen[], int count, int mask)
+{
+	unsigned char head[4];
+	long size = 0;
+	int hdrlen;
+	int i;
+
+	assert(asyncsock);
+	if (asyncsock == NULL) return -1;
+
+	for (i = 0; i < count; i++) size += veclen[i];
+	hdrlen = async_sock_write_size(asyncsock, size, mask, (char*)head);
+
+	if (asyncsock->rc4_send_x >= 0 && asyncsock->rc4_send_y >= 0 && hdrlen) {
+		icrypt_rc4_crypt(asyncsock->rc4_send_box, &asyncsock->rc4_send_x,
+			&asyncsock->rc4_send_y, head, head, hdrlen);
+	}
+
+	ims_write(&asyncsock->sendmsg, head, hdrlen);
+
+	for (i = 0; i < count; i++) {
+		if (asyncsock->rc4_send_x < 0 || asyncsock->rc4_send_y < 0) {
+			ims_write(&asyncsock->sendmsg, vecptr[i], veclen[i]);
+		}	else {
+			unsigned char *buffer = (unsigned char*)asyncsock->buffer;
+			const unsigned char *lptr = (const unsigned char*)vecptr[i];
+			long remain = veclen[i];
+			long bufsize = asyncsock->bufsize;
+			for (; remain > 0; ) {
+				long canread = (size > bufsize)? bufsize : remain;
+				icrypt_rc4_crypt(asyncsock->rc4_send_box, 
+					&asyncsock->rc4_send_x, 
+					&asyncsock->rc4_send_y, 
+					lptr, buffer, canread);
+				ims_write(&asyncsock->sendmsg, buffer, canread);
+				remain -= canread;
+				lptr += canread;
+			}
+		}
+	}
+
+	return size;
+}
+
+// recv vector: returns packet size, -1 for not enough data, -2 for 
+// buffer size too small, -3 for packet size error, -4 for size over limit,
+// returns packet size if vecptr equals NULL.
+long async_sock_recv_vector(CAsyncSock *asyncsock, void *vecptr[], 
+	const long veclen[], int count)
+{
+	long hdrlen, remain, size = 0;
+	IUINT32 len;
+	int i;
+
+	assert(asyncsock);
+	if (asyncsock == 0) return 0;
+
+	hdrlen = async_sock_head_len[asyncsock->header];
+	for (i = 0; i < count; i++) size += veclen[i];
+
+	len = async_sock_read_size(asyncsock);
+	if (len <= 0) return -1;
+	if (len < hdrlen) return -3;
+	if (len > asyncsock->maxsize) return -4;
+	if (asyncsock->recvmsg.size < (ilong)len) return -1;
+	if (vecptr == NULL) return len - hdrlen;
+	if (len > size + hdrlen) return -2;
+
+	ims_drop(&asyncsock->recvmsg, hdrlen);
+
+	len -= hdrlen;
+	remain = len;
+
+	for (i = 0; i < count; i++) {
+		long canread = remain;
+		if (canread <= 0) break;
+		if (canread > veclen[i]) canread = veclen[i];
+		ims_read(&asyncsock->recvmsg, vecptr[i], canread);
+		remain -= canread;
+	}
+
+	return len;
+}
+
+// send
+long async_sock_send(CAsyncSock *asyncsock, const void *ptr, long size, 
+	int mask)
+{
+	const void *vecptr[1];
+	long veclen[1];
+	vecptr[0] = ptr;
+	veclen[0] = size;
+	assert(asyncsock);
+	return async_sock_send_vector(asyncsock, vecptr, veclen, 1, mask);
+}
+
+// recv vector: returns packet size, -1 for not enough data, -2 for 
+// buffer size too small, -3 for packet size error, -4 for size over limit,
+// returns packet size if ptr equals NULL.
+long async_sock_recv(CAsyncSock *asyncsock, void *ptr, int size)
+{
+	void *vecptr[1];
+	long veclen[1];
+
+	if (ptr == NULL) {
+		return async_sock_recv_vector(asyncsock, NULL, NULL, 0);
+	}
+
+	vecptr[0] = ptr;
+	veclen[0] = size;
+
+	return async_sock_recv_vector(asyncsock, vecptr, veclen, 1);
+}
+
+// set send cryption key
+void async_sock_rc4_set_skey(CAsyncSock *asyncsock, 
+	const unsigned char *key, int keylen)
+{
+	if (asyncsock->rc4_send_box) {
+		icrypt_rc4_init(asyncsock->rc4_send_box, 
+			&asyncsock->rc4_send_x,
+			&asyncsock->rc4_send_y, key, keylen);
+	}
+}
+
+// set recv cryption key
+void async_sock_rc4_set_rkey(CAsyncSock *asyncsock, 
+	const unsigned char *key, int keylen)
+{
+	if (asyncsock->rc4_recv_box) {
+		icrypt_rc4_init(asyncsock->rc4_recv_box, 
+			&asyncsock->rc4_recv_x,
+			&asyncsock->rc4_recv_y, key, keylen);
+	}
+}
+
+// set nodelay
+int async_sock_nodelay(CAsyncSock *asyncsock, int nodelay)
+{
+	assert(asyncsock);
+	if (asyncsock->fd < 0) return 0;
+	if (nodelay) ienable(asyncsock->fd, ISOCK_NODELAY);
+	else idisable(asyncsock->fd, ISOCK_NODELAY);
+	return 0;
+}
+
+// set buf size
+int async_sock_sys_buffer(CAsyncSock *asyncsock, long rcvbuf, long sndbuf)
+{
+	if (asyncsock == NULL) return -10;
+	if (asyncsock->fd < 0) return -20;
+	return inet_set_bufsize(asyncsock->fd, rcvbuf, sndbuf);
+}
+
+// set keepalive
+int async_sock_keepalive(CAsyncSock *asyncsock, int keepcnt, int keepidle,
+	int keepintvl)
+{
+	if (asyncsock == NULL) return -10;
+	if (asyncsock->fd < 0) return -20;
+	return ikeepalive(asyncsock->fd, keepcnt, keepidle, keepintvl);
+}
+
+
+
+//=====================================================================
+// CAsyncCore
+//=====================================================================
+struct CAsyncCore
+{
+	struct IMEMNODE *nodes;
+	struct IMEMNODE *cache;
+	struct IMSTREAM msgs;
+	struct IQUEUEHEAD head;
+	struct IVECTOR *vector;
+	int (*check)(const struct sockaddr *rmt, int len, CAsyncCore *core, long hid);
+	ipolld pfd;
+	long bufsize;
+	char *buffer;
+	char *data;
+	void *user;
+	long msgcnt;
+	long count;
+	long index;
+	IUINT32 current;
+	IUINT32 lastsec;
+	IUINT32 timeout;
+};
+
+
+//---------------------------------------------------------------------
+// new async core
+//---------------------------------------------------------------------
+CAsyncCore* async_core_new(void)
+{
+	CAsyncCore *core;
+
+	core = (CAsyncCore*)ikmem_malloc(sizeof(CAsyncCore));
+	if (core == NULL) return NULL;
+
+	memset(core, 0, sizeof(CAsyncCore));
+
+	core->nodes = imnode_create(sizeof(CAsyncSock), 64);
+	core->cache = imnode_create(8192, 64);
+	core->vector = iv_create();
+
+	assert(core->nodes && core->cache);
+
+	if (core->nodes == NULL || core->cache == NULL ||
+		core->vector == NULL) {
+		if (core->nodes) imnode_delete(core->nodes);
+		if (core->cache) imnode_delete(core->cache);
+		if (core->vector) iv_delete(core->vector);
+		memset(core, 0, sizeof(CAsyncCore));
+		ikmem_free(core);
+		return NULL;
+	}
+
+	core->bufsize = 0x400000;
+
+	if (iv_resize(core->vector, (core->bufsize + 64) * 2) != 0) {
+		imnode_delete(core->nodes);
+		imnode_delete(core->cache);
+		iv_delete(core->vector);
+		memset(core, 0, sizeof(CAsyncCore));
+		ikmem_free(core);
+		return NULL;
+	}
+
+	ipoll_init(IDEVICE_AUTO);
+
+	if (ipoll_create(&core->pfd, 20000) != 0) {
+		imnode_delete(core->nodes);
+		imnode_delete(core->cache);
+		iv_delete(core->vector);
+		memset(core, 0, sizeof(CAsyncCore));
+		ikmem_free(core);
+		return NULL;
+	}
+
+	ims_init(&core->msgs, core->cache, 0, 0);
+	iqueue_init(&core->head);
+
+	core->data = NULL;
+	core->msgcnt = 0;
+	core->count = 0;
+	core->timeout = 0;
+	core->index = 1;
+	core->check = NULL;
+	core->user = NULL;
+	core->data = (char*)core->vector->data;
+	core->buffer = core->data + core->bufsize + 64;
+	core->current = iclock();
+	core->lastsec = 0;
+
+	return core;
+}
+
+
+//---------------------------------------------------------------------
+// delete async core
+//---------------------------------------------------------------------
+static long async_core_node_delete(CAsyncCore *core, long hid);
+
+void async_core_delete(CAsyncCore *core)
+{
+	if (core == NULL) return;
+	while (1) {
+		long hid = async_core_node_head(core);
+		if (hid < 0) break;
+		async_core_node_delete(core, hid);
+	}
+	if (!iqueue_is_empty(&core->head)) {
+		assert(iqueue_is_empty(&core->head));
+		abort();
+	}
+	if (core->count != 0) {
+		assert(core->count == 0);
+		abort();
+	}
+	if (core->pfd) {
+		ipoll_delete(core->pfd);
+		core->pfd = NULL;
+	}
+	if (core->vector) iv_delete(core->vector);
+	if (core->nodes) imnode_delete(core->nodes);
+	if (core->cache) imnode_delete(core->cache);
+	core->vector = NULL;
+	core->nodes = NULL;
+	core->cache = NULL;
+	core->data = NULL;
+	iqueue_init(&core->head);
+	memset(core, 0, sizeof(CAsyncCore));
+	ikmem_free(core);
+}
+
+
+//---------------------------------------------------------------------
+// new node
+//---------------------------------------------------------------------
+static long async_core_node_new(CAsyncCore *core)
+{
+	long index, id = -1;
+
+	if (core->nodes->node_used >= 0xffff) return -1;
+	index = (long)imnode_new(core->nodes);
+	if (index < 0) return -2;
+
+	if (index >= 0x10000) {
+		assert(index < 0x10000);
+		abort();
+	}
+
+	id = (index & 0xffff) | (core->index << 16);
+	core->index++;
+	if (core->index >= 0x7fff) core->index = 1;
+
+	CAsyncSock *sock = (CAsyncSock*)IMNODE_DATA(core->nodes, index);
+	if (sock == NULL) {
+		assert(sock);
+		abort();
+	}
+
+	async_sock_init(sock, core->cache);
+	sock->hid = id;
+	sock->external = core->buffer;
+	sock->buffer = core->buffer;
+	sock->bufsize = core->bufsize;
+	sock->time = core->current;
+	iqueue_add_tail(&sock->node, &core->head);
+
+	core->count++;
+
+	return id;
+}
+
+
+//---------------------------------------------------------------------
+// get node
+//---------------------------------------------------------------------
+static inline CAsyncSock*
+async_core_node_get(CAsyncCore *core, long hid)
+{
+	long index = hid & 0xffff;
+	CAsyncSock *sock;
+	if (index < 0 || index >= (long)core->nodes->node_max)
+		return NULL;
+	if (IMNODE_MODE(core->nodes, index) != 1)
+		return NULL;
+	sock = (CAsyncSock*)IMNODE_DATA(core->nodes, index);
+	if (sock->hid != hid) return NULL;
+	return sock;
+}
+
+//---------------------------------------------------------------------
+// get node const
+//---------------------------------------------------------------------
+static inline const CAsyncSock*
+async_core_node_get_const(const CAsyncCore *core, long hid)
+{
+	long index = hid & 0xffff;
+	const CAsyncSock *sock;
+	if (index < 0 || index >= (long)core->nodes->node_max)
+		return NULL;
+	if (IMNODE_MODE(core->nodes, index) != 1)
+		return NULL;
+	sock = (const CAsyncSock*)IMNODE_DATA(core->nodes, index);
+	if (sock->hid != hid) return NULL;
+	return sock;
+}
+
+
+//---------------------------------------------------------------------
+// delete node
+//---------------------------------------------------------------------
+static long async_core_node_delete(CAsyncCore *core, long hid)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -1;
+	if (!iqueue_is_empty(&sock->node)) {
+		iqueue_del(&sock->node);
+		iqueue_init(&sock->node);
+	}
+	async_sock_destroy(sock);
+	imnode_del(core->nodes, hid & 0xffff);
+	core->count--;
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// active node
+//---------------------------------------------------------------------
+static int async_core_node_active(CAsyncCore *core, long hid)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -1;
+	sock->time = core->current;
+	iqueue_del(&sock->node);
+	iqueue_add_tail(&sock->node, &core->head);
+	return 0;
+}
+
+//---------------------------------------------------------------------
+// first node
+//---------------------------------------------------------------------
+long async_core_node_head(const CAsyncCore *core)
+{
+	const CAsyncSock *sock = NULL;
+	long index = imnode_head(core->nodes);
+	if (index < 0) return -1;
+	sock = (const CAsyncSock*)IMNODE_DATA(core->nodes, index);
+	return sock->hid;
+}
+
+//---------------------------------------------------------------------
+// next node
+//---------------------------------------------------------------------
+long async_core_node_next(const CAsyncCore *core, long hid)
+{
+	const CAsyncSock *sock = async_core_node_get_const(core, hid);
+	long index = hid & 0xffff;
+	if (sock == NULL) return -1;
+	index = imnode_next(core->nodes, index);
+	if (index < 0) return -1;
+	sock = (const CAsyncSock*)IMNODE_DATA(core->nodes, index);
+	if (sock == NULL) {
+		assert(sock);
+		abort();
+	}
+	return sock->hid;
+}
+
+//---------------------------------------------------------------------
+// prev node
+//---------------------------------------------------------------------
+long async_core_node_prev(const CAsyncCore *core, long hid)
+{
+	const CAsyncSock *sock = async_core_node_get_const(core, hid);
+	long index = hid & 0xffff;
+	if (sock == NULL) return -1;
+	index = imnode_prev(core->nodes, index);
+	if (index < 0) return -1;
+	sock = (const CAsyncSock*)IMNODE_DATA(core->nodes, index);
+	if (sock == NULL) {
+		assert(sock);
+		abort();
+	}
+	return sock->hid;
+}
+
+
+//---------------------------------------------------------------------
+// post message
+//---------------------------------------------------------------------
+static int async_core_msg_push(CAsyncCore *core, int event, long wparam, 
+	long lparam, const void *data, long size)
+{
+	char head[14];
+	size = size < 0 ? 0 : size;
+	iencode32u_lsb(head, (long)(size + 14));
+	iencode16u_lsb(head + 4, (unsigned short)event);
+	iencode32i_lsb(head + 6, wparam);
+	iencode32i_lsb(head + 10, lparam);
+	ims_write(&core->msgs, head, 14);
+	ims_write(&core->msgs, data, size);
+	core->msgcnt++;
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// get message
+//---------------------------------------------------------------------
+static long async_core_msg_read(CAsyncCore *core, int *event, long *wparam,
+	long *lparam, void *data, long size)
+{
+	char head[14];
+	IUINT32 length;
+	IINT32 x;
+	IUINT16 y;
+	int EVENT;
+	long WPARAM;
+	long LPARAM;
+	if (ims_peek(&core->msgs, head, 4) < 4) return -1;
+	idecode32u_lsb(head, &length);
+	length -= 14;
+	if (data == NULL) return length;
+	if (size < (long)length) return -2;
+	ims_read(&core->msgs, head, 14);
+	idecode16u_lsb(head + 4, &y);
+	EVENT = y;
+	idecode32i_lsb(head + 6, &x);
+	WPARAM = x;
+	idecode32i_lsb(head + 10, &x);
+	LPARAM = x;
+	ims_read(&core->msgs, data, length);
+	if (event) event[0] = EVENT;
+	if (wparam) wparam[0] = WPARAM;
+	if (lparam) lparam[0] = LPARAM;
+	return length;
+}
+
+//---------------------------------------------------------------------
+// resize buffer
+//---------------------------------------------------------------------
+static int async_core_buffer_resize(CAsyncCore *core, long newsize)
+{
+	long hid, xsize;
+	if (newsize < core->bufsize) return 0;
+	for (xsize = core->bufsize; xsize < newsize; ) {
+		if (xsize <= 0x800000) xsize += 0x100000;
+		else xsize = xsize + (xsize >> 1);
+	}
+	newsize = xsize;
+	if (iv_resize(core->vector, (newsize + 64) * 2) != 0) return -1;
+	core->data = (char*)core->vector->data;
+	core->buffer = core->data + newsize + 64;
+	core->bufsize = newsize;
+
+	hid = async_core_node_head(core);
+
+	while (hid >= 0) {
+		CAsyncSock *sock = async_core_node_get(core, hid);
+		assert(sock);
+		sock->external = core->buffer;
+		sock->buffer = core->buffer;
+		sock->bufsize = core->bufsize;
+		hid = async_core_node_next(core, hid);
+	}
+
+	return 0;
+}
+
+//---------------------------------------------------------------------
+// change event mask
+//---------------------------------------------------------------------
+static int async_core_node_mask(CAsyncCore *core, CAsyncSock *sock, 
+	int enable, int disable)
+{
+	if (core == NULL || sock == NULL) return -1;
+	if (disable & IPOLL_IN) sock->mask &= ~(IPOLL_IN);
+	if (disable & IPOLL_OUT) sock->mask &= ~(IPOLL_OUT);
+	if (disable & IPOLL_ERR) sock->mask &= ~(IPOLL_ERR);
+	if (enable & IPOLL_IN) sock->mask |= IPOLL_IN;
+	if (enable & IPOLL_OUT) sock->mask |= IPOLL_OUT;
+	if (enable & IPOLL_ERR) sock->mask |= IPOLL_ERR;
+	return ipoll_set(core->pfd, sock->fd, sock->mask);
+}
+
+//---------------------------------------------------------------------
+// new accept
+//---------------------------------------------------------------------
+static long async_core_accept(CAsyncCore *core, long listen_hid)
+{
+	CAsyncSock *sock = async_core_node_get(core, listen_hid);
+	struct sockaddr_in remote4;
+	struct sockaddr_in6 remote6;
+	struct sockaddr *remote;
+	long hid;
+	int fd = -1;
+	int addrlen = 0;
+	int head = 0;
+	int hr;
+
+	if (sock == NULL) return -1;
+	if (core->count >= 0xffff) return -2;
+
+	if (sock->mode == ASYNC_CORE_NODE_LISTEN4) {
+		addrlen = sizeof(remote4);
+		remote = (struct sockaddr*)&remote4;
+		fd = iaccept(sock->fd, remote, &addrlen);
+	}	
+	else if (sock->mode == ASYNC_CORE_NODE_LISTEN6) {
+		addrlen = sizeof(remote6);
+		remote = (struct sockaddr*)&remote6;
+		fd = iaccept(sock->fd, remote, &addrlen);
+	}
+	else {
+		return -3;
+	}
+
+	if (fd < 0) {
+		return -4;
+	}
+
+	if (core->check) {
+		if (core->check(remote, addrlen, core, listen_hid) != 0) {
+			iclose(fd);
+			return -5;
+		}
+	}
+
+	hid = async_core_node_new(core);
+
+	if (hid < 0) {
+		iclose(fd);
+		return -6;
+	}
+
+	head = sock->header;
+	sock = async_core_node_get(core, hid);
+	sock->mode = ASYNC_CORE_NODE_IN;
+	sock->ipv6 = (addrlen == sizeof(remote4))? 0 : 1;
+
+	if (sock == NULL) {
+		assert(sock);
+		abort();
+	}
+
+	async_sock_assign(sock, fd, head);
+	
+	hr = ipoll_add(core->pfd, fd, IPOLL_IN | IPOLL_ERR, sock);
+	if (hr != 0) {
+		async_core_node_delete(core, hid);
+		return -7;
+	}
+
+	async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR, 0);
+
+	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
+		listen_hid, remote, addrlen);
+
+	return hid;
+}
+
+
+//---------------------------------------------------------------------
+// new connection to the target address, returns hid
+//---------------------------------------------------------------------
+long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
+	int addrlen, int header)
+{
+	CAsyncSock *sock;
+	long hid;
+	int hr;
+
+	hid = async_core_node_new(core);
+	if (hid < 0) return -1;
+
+	sock = async_core_node_get(core, hid);
+
+	if (sock == NULL) {
+		assert(sock);
+		abort();
+	}
+
+	if (async_sock_connect(sock, addr, addrlen, header) != 0) {
+		async_sock_close(sock);
+		async_core_node_delete(core, hid);
+		return -2;
+	}
+
+	hr = ipoll_add(core->pfd, sock->fd, IPOLL_OUT | IPOLL_ERR, sock);
+	if (hr != 0) {
+		async_core_node_delete(core, hid);
+		return -3;
+	}
+
+	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_ERR, 0);
+	sock->mode = ASYNC_CORE_NODE_OUT;
+
+	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
+		0, addr, addrlen);
+
+	return hid;
+}
+
+
+//---------------------------------------------------------------------
+// new listener, returns hid
+//---------------------------------------------------------------------
+long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr, 
+	int addrlen, int header)
+{
+	CAsyncSock *sock;
+	int fd, ipv6 = 0;
+	int hr;
+	long hid;
+
+	if (addrlen >= (int)sizeof(struct sockaddr_in6)) {
+		fd = socket(AF_INET6, SOCK_STREAM, 0);
+	#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
+		if (fd >= 0) {
+			unsigned long enable = 1;
+			isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+				(const char*)&enable, sizeof(enable));
+		}
+	#endif
+		ipv6 = 1;
+	}	else {
+		fd = socket(AF_INET, SOCK_STREAM, 0);
+		ipv6 = 0;
+	}
+	if (fd < 0) return -1;
+
+	if (ibind(fd, addr, addrlen) != 0) {
+		iclose(fd);
+		return -2;
+	}
+
+	if (listen(fd, 20) != 0) {
+		iclose(fd);
+		return -3;
+	}
+
+	hid = async_core_node_new(core);
+
+	if (hid < 0) {
+		iclose(fd);
+		return -4;
+	}
+
+	sock = async_core_node_get(core, hid);
+	async_sock_assign(sock, fd, 0);
+
+	hr = ipoll_add(core->pfd, sock->fd, IPOLL_IN | IPOLL_ERR, sock);
+	if (hr != 0) {
+		async_core_node_delete(core, hid);
+		return -3;
+	}
+
+	async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR, 0);
+	sock->mode = ipv6? ASYNC_CORE_NODE_LISTEN6 : ASYNC_CORE_NODE_LISTEN4;
+
+	if (!iqueue_is_empty(&sock->node)) {
+		iqueue_del(&sock->node);
+		iqueue_init(&sock->node);
+	}
+
+	sock->header = header;
+
+	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
+		-1, addr, addrlen);
+
+	return hid;
+}
+
+
+//---------------------------------------------------------------------
+// process close
+//---------------------------------------------------------------------
+static void async_core_event_close(CAsyncCore *core, 
+	CAsyncSock *sock, int code)
+{
+	IUINT32 data[2];
+	data[0] = sock->error;
+	data[1] = code;
+	if (sock->fd >= 0) {
+		ipoll_del(core->pfd, sock->fd);
+	}
+	async_sock_close(sock);
+	async_core_msg_push(core, ASYNC_CORE_EVT_LEAVE, sock->hid,
+		sock->tag, data, sizeof(IUINT32) * 2);
+	async_core_node_delete(core, sock->hid);
+}
+
+//---------------------------------------------------------------------
+// wait for events for millisec ms. and process events, 
+// if millisec equals zero, no wait.
+//---------------------------------------------------------------------
+static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
+{
+	int fd, event, x, count, code = 2010;
+	void *udata;
+	IUINT32 now;
+
+	count = ipoll_wait(core->pfd, millisec);
+	core->current = iclock();
+	now = (IUINT32)time(NULL);
+
+	for (x = count * 2; x > 0; x--) {
+		CAsyncSock *sock;
+		int needclose = 0;
+		if (ipoll_event(core->pfd, &fd, &event, &udata) != 0) {
+			break;
+		}
+		//printf("[poll] event=%d fd=%d\n", event, fd);
+		sock = (CAsyncSock*)udata;
+		if (sock == NULL || fd != sock->fd) {
+			assert(sock && fd == sock->fd);
+			abort();
+		}
+		switch (event)
+		{
+		case IPOLL_ERR:
+		case IPOLL_IN:
+			if (sock->mode == ASYNC_CORE_NODE_LISTEN4 ||
+				sock->mode == ASYNC_CORE_NODE_LISTEN6) {
+				async_core_accept(core, sock->hid);
+			}	else {
+				if (async_sock_update(sock, 1) != 0) {
+					needclose = 1;
+					code = 2000;
+					break;
+				}
+				async_core_node_active(core, sock->hid);
+				while (1) {
+					long size = async_sock_recv(sock, NULL, 0);
+					if (size < 0) {	// not enough data or packet size error
+						if (size == -3 || size == -4) {	// size error
+							needclose = 1;
+							code = 2001;
+						}
+						break;
+					}
+					else if (size > core->bufsize) {	// buffer resize
+						if (async_core_buffer_resize(core, size) != 0) {
+							needclose = 1;
+							code = 2002;
+							break;
+						}
+					}
+					size = async_sock_recv(sock, core->buffer,
+						core->bufsize);
+					async_core_msg_push(core, ASYNC_CORE_EVT_DATA,
+						sock->hid, sock->tag, core->buffer, size);
+				}
+			}
+			break;
+		case IPOLL_OUT:
+			if (sock->mode == ASYNC_CORE_NODE_OUT) {
+				if (sock->state == ASYNC_SOCK_STATE_CONNECTING) {
+					sock->state = ASYNC_SOCK_STATE_ESTAB;
+					async_core_msg_push(core, ASYNC_CORE_EVT_ESTAB, 
+						sock->hid, sock->tag, "", 0);
+					async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR,
+						IPOLL_OUT);
+				}
+			}
+			if (sock->sendmsg.size > 0) {
+				if (async_sock_update(sock, 2) != 0) {
+					needclose = 1;
+					code = 2003;
+					break;
+				}
+			}
+			if (sock->sendmsg.size == 0 && sock->fd >= 0) {
+				if (sock->mask & IPOLL_OUT) {
+					async_core_node_mask(core, sock, 0, IPOLL_OUT);
+				}
+			}
+			break;
+		}
+		if (sock->state == ASYNC_SOCK_STATE_CLOSED || needclose) {
+			async_core_event_close(core, sock, code);
+		}
+	}
+
+	if (now != core->lastsec && core->timeout > 0) {
+		CAsyncSock *sock;
+		core->lastsec = now;
+		while (!iqueue_is_empty(&core->head)) {
+			IINT32 timeout;
+			sock = iqueue_entry(core->head.next, CAsyncSock, node);
+			timeout = itimediff(core->current, sock->time + core->timeout);
+			if (timeout < 0) break;
+			async_core_event_close(core, sock, 2004);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// send vector
+//---------------------------------------------------------------------
+long async_core_send_vector(CAsyncCore *core, long hid, const void *vecptr[],
+	const long veclen[], int count, int mask)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	long hr;
+	if (sock == NULL) return -100;
+	hr = async_sock_send_vector(sock, vecptr, veclen, count, mask);
+	if (sock->sendmsg.size > 0 && sock->fd >= 0) {
+		if ((sock->mask & IPOLL_OUT) == 0) {
+			async_core_node_mask(core, sock, 
+				IPOLL_OUT, 0);
+		}
+	}
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
+// send data to given hid
+//---------------------------------------------------------------------
+long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len)
+{
+	const void *vecptr[1];
+	long veclen[1];
+	vecptr[0] = ptr;
+	veclen[0] = len;
+	return async_core_send_vector(core, hid, vecptr, veclen, 1, 0);
+}
+
+//---------------------------------------------------------------------
+// close given hid
+//---------------------------------------------------------------------
+int async_core_close(CAsyncCore *core, long hid, int code)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -1;
+	async_core_event_close(core, sock, code);
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// wait for events for millisec ms. and process events, 
+// if millisec equals zero, no wait.
+//---------------------------------------------------------------------
+void async_core_process(CAsyncCore *core, IUINT32 millisec)
+{
+	return async_core_process_events(core, millisec);
+}
+
+
+//---------------------------------------------------------------------
+// get message
+//---------------------------------------------------------------------
+long async_core_read(CAsyncCore *core, int *event, long *wparam,
+	long *lparam, void *data, long size)
+{
+	return async_core_msg_read(core, event, wparam, lparam, data, size);
+}
+
+//---------------------------------------------------------------------
+// get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6
+// returns -1 for not exists
+//---------------------------------------------------------------------
+int async_core_get_mode(const CAsyncCore *core, long hid)
+{
+	const CAsyncSock *sock = async_core_node_get_const(core, hid);
+	if (sock == NULL) return -1;
+	return sock->mode;
+}
+
+// get tag
+long async_core_get_tag(const CAsyncCore *core, long hid)
+{
+	const CAsyncSock *sock = async_core_node_get_const(core, hid);
+	if (sock == NULL) return -1;
+	return sock->tag;
+}
+
+// set tag
+void async_core_set_tag(CAsyncCore *core, long hid, long tag)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	if (sock != NULL) {
+		sock->tag = tag;
+	}
+}
+
+// get send queue size
+long async_core_remain(const CAsyncCore *core, long hid)
+{
+	const CAsyncSock *sock = async_core_node_get_const(core, hid);
+	if (sock == NULL) return -1;
+	return (long)sock->sendmsg.size;
+}
+
+
+// set connection socket option
+int async_core_option(CAsyncCore *core, long hid, int type, int enable)
+{
+	int hr = -100;
+	CAsyncSock *sock = async_core_node_get(core, hid);
+
+	if (sock == NULL) return -10;
+	if (sock->fd < 0) return -20;
+
+	switch (type) {
+	case ASYNC_CORE_OPTION_NODELAY:
+		if (enable == 0) {
+			hr = idisable(sock->fd, ISOCK_NODELAY);
+		}	else {
+			hr = ienable(sock->fd, ISOCK_NODELAY);
+		}
+		break;
+	case ASYNC_CORE_OPTION_REUSEADDR:
+		if (enable == 0) {
+			hr = idisable(sock->fd, ISOCK_REUSEADDR);
+		}	else {
+			hr = ienable(sock->fd, ISOCK_REUSEADDR);
+		}
+		break;
+	case ASYNC_CORE_OPTION_KEEPALIVE:
+		if (enable == 0) {
+			hr = ikeepalive(sock->fd, 5, 40, 1);
+		}	else {
+			hr = ikeepalive(sock->fd, -1, -1, -1);
+		}
+		break;
+	}
+	return hr;
+}
+
+// set connection rc4 send key
+int async_core_rc4_set_skey(CAsyncCore *core, long hid, 
+	const unsigned char *key, int keylen)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -1;
+	async_sock_rc4_set_skey(sock, key, keylen);
+	return 0;
+}
+
+// set connection rc4 recv key
+int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
+	const unsigned char *key, int keylen)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -1;
+	async_sock_rc4_set_rkey(sock, key, keylen);
+	return 0;
+}
 
 
 //---------------------------------------------------------------------
@@ -372,823 +1833,6 @@ int iutils_get_proc_pathname(char *ptr, int size)
 
 #endif
 
-
-
-/*===================================================================*/
-/* ITMCLIENT                                                         */
-/*===================================================================*/
-
-void itmc_init(struct ITMCLIENT *client, struct IMEMNODE *nodes, int header)
-{
-	client->sock = -1;
-	client->state = ITMC_STATE_CLOSED;
-	client->hid = -1;
-	client->tag = -1;
-	client->time = 0;
-	client->buffer = NULL;
-	client->header = (header < 0 || header > 12)? 0 : header;
-	client->rc4_send_x = -1;
-	client->rc4_send_y = -1;
-	client->rc4_recv_x = -1;
-	client->rc4_recv_y = -1;
-	client->rc4_send_box = NULL;
-	client->rc4_recv_box = NULL;
-	ims_init(&client->sendmsg, nodes, 0, 0);
-	ims_init(&client->recvmsg, nodes, 0, 0);
-}
-
-void itmc_destroy(struct ITMCLIENT *client)
-{
-	if (client->sock >= 0) iclose(client->sock);
-	if (client->buffer) ikmem_free(client->buffer);
-	client->buffer = NULL;
-	client->sock = -1;
-	client->hid = -1;
-	client->tag = -1;
-	client->buffer = NULL;
-	client->state = ITMC_STATE_CLOSED;
-	ims_destroy(&client->sendmsg);
-	ims_destroy(&client->recvmsg);
-	client->rc4_send_box = NULL;
-	client->rc4_recv_box = NULL;
-	client->rc4_send_x = -1;
-	client->rc4_send_y = -1;
-	client->rc4_recv_x = -1;
-	client->rc4_recv_y = -1;
-}
-
-#ifndef ITMC_BUFSIZE
-#define ITMC_BUFSIZE	0x10000
-#endif
-
-int itmc_connect(struct ITMCLIENT *client, const struct sockaddr *addr)
-{
-	if (client->sock >= 0) iclose(client->sock);
-
-	client->sock = -1;
-	client->state = ITMC_STATE_CLOSED;
-	client->hid = -1;
-
-	ims_clear(&client->sendmsg);
-	ims_clear(&client->recvmsg);
-
-	if (client->buffer == NULL) {
-		client->buffer = (char*)ikmem_malloc(ITMC_BUFSIZE + 512);
-		if (client->buffer == NULL) return -1;
-		client->rc4_send_box = (unsigned char*)client->buffer + ITMC_BUFSIZE;
-		client->rc4_recv_box = client->rc4_send_box + 256;
-	}
-
-	client->rc4_send_x = -1;
-	client->rc4_send_y = -1;
-	client->rc4_recv_x = -1;
-	client->rc4_recv_y = -1;
-
-	client->sock = isocket(AF_INET, SOCK_STREAM, 0);
-	if (client->sock < 0) return -2;
-
-	ienable(client->sock, ISOCK_NOBLOCK);
-	ienable(client->sock, ISOCK_REUSEADDR);
-	iconnect(client->sock, addr, 0);
-	isockname(client->sock, &client->local, 0);
-	client->state = ITMC_STATE_CONNECTING;
-
-	return 0;
-}
-
-int itmc_assign(struct ITMCLIENT *client, int sock)
-{
-	if (client->sock >= 0) iclose(client->sock);
-	client->sock = -1;
-
-	if (client->buffer == NULL) {
-		client->buffer = (char*)ikmem_malloc(ITMC_BUFSIZE + 512);
-		if (client->buffer == NULL) return -1;
-		client->rc4_send_box = (unsigned char*)client->buffer + ITMC_BUFSIZE;
-		client->rc4_recv_box = client->rc4_send_box + 256;
-	}
-
-	client->rc4_send_x = -1;
-	client->rc4_send_y = -1;
-	client->rc4_recv_x = -1;
-	client->rc4_recv_y = -1;
-
-	ims_clear(&client->sendmsg);
-	ims_clear(&client->recvmsg);
-
-	client->sock = sock;
-
-	ienable(client->sock, ISOCK_NOBLOCK);
-	ienable(client->sock, ISOCK_REUSEADDR);
-	isockname(client->sock, &client->local, 0);
-	client->state = ITMC_STATE_ESTABLISHED;
-
-	return 0;
-}
-
-int itmc_close(struct ITMCLIENT *client)
-{
-	if (client->sock >= 0) iclose(client->sock);
-	client->sock = -1;
-	client->state = ITMC_STATE_CLOSED;
-	client->rc4_send_x = -1;
-	client->rc4_send_y = -1;
-	client->rc4_recv_x = -1;
-	client->rc4_recv_y = -1;
-	return 0;
-}
-
-static int itmc_try_connect(struct ITMCLIENT *client)
-{
-	int event;
-	if (client->state != 1) return 0;
-	event = ISOCK_ESEND | ISOCK_ERROR;
-	event = ipollfd(client->sock, event, 0);
-	if (event & ISOCK_ERROR) {
-		itmc_close(client);
-	}	else
-	if (event & ISOCK_ESEND) {
-		client->state = ITMC_STATE_ESTABLISHED;
-	}
-	return 0;
-}
-
-static void itmc_try_send(struct ITMCLIENT *client)
-{
-	void *ptr;
-	char *flat;
-	long size;
-	int retval;
-
-	if (client->state != ITMC_STATE_ESTABLISHED) return;
-
-	while (1) {
-		size = ims_flat(&client->sendmsg, &ptr);
-		if (size <= 0) break;
-		flat = (char*)ptr;
-		retval = isend(client->sock, flat, size, 0);
-		if (retval < 0) {
-			retval = ierrno();
-			if (retval == IEAGAIN) retval = 0;
-			else {
-				retval = -1;
-				itmc_close(client);
-				client->error = retval;
-				break;
-			}
-		}
-		ims_drop(&client->sendmsg, retval);
-	}
-}
-
-static void itmc_try_recv(struct ITMCLIENT *client)
-{
-	unsigned char *buffer = (unsigned char*)client->buffer;
-	int retval;
-	if (client->state != ITMC_STATE_ESTABLISHED) return;
-	while (1) {
-		retval = irecv(client->sock, buffer, ITMC_BUFSIZE, 0);
-		if (retval < 0) {
-			retval = ierrno();
-			if (retval == IEAGAIN) break;
-			else { 
-				retval = -1;
-				itmc_close(client);
-				client->error = retval;
-				break;
-			}
-		}	else 
-		if (retval == 0) {
-			client->error = -1;
-			itmc_close(client);
-			break;
-		}
-		if (client->rc4_recv_x >= 0 && client->rc4_recv_y >= 0) {
-			icrypt_rc4_crypt(client->rc4_recv_box, &client->rc4_recv_x,
-				&client->rc4_recv_y, buffer, buffer, retval);
-		}
-		ims_write(&client->recvmsg, buffer, retval);
-	}
-}
-
-int itmc_process(struct ITMCLIENT *client)
-{
-	if (client->state == ITMC_STATE_CLOSED) {
-		return 0;
-	}	
-	else if (client->state == ITMC_STATE_CONNECTING) {
-		itmc_try_connect(client);
-	}	
-	else {
-		itmc_try_send(client);
-		itmc_try_recv(client);
-	}
-	return 0;
-}
-
-int itmc_status(struct ITMCLIENT *client)
-{
-	return client->state;
-}
-
-int itmc_nodelay(struct ITMCLIENT *client, int nodelay)
-{
-	assert(client);
-	if (client->sock < 0) return 0;
-	if (nodelay) ienable(client->sock, ISOCK_NODELAY);
-	else idisable(client->sock, ISOCK_NODELAY);
-	return 0;
-}
-
-// header size
-static const int itmc_head_len[13] = 
-	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4 };
-
-// header increasement
-static const int itmc_head_inc[13] = 
-	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0 };
-
-
-// get data size
-int itmc_dsize(const struct ITMCLIENT *client)
-{
-	unsigned char dsize[4];
-	unsigned long len;
-	IUINT8 len8;
-	IUINT16 len16;
-	IUINT32 len32;
-	int hdrlen;
-	int hdrinc;
-	int header;
-
-	assert(client);
-	hdrlen = itmc_head_len[client->header];
-	hdrinc = itmc_head_inc[client->header];
-
-	len = (unsigned short)ims_peek(&client->recvmsg, dsize, hdrlen);
-	if (len < (unsigned long)hdrlen) return 0;
-
-	if (client->header != ITMH_DWORDMASK) {
-		header = (client->header < 6)? client->header : client->header - 6;
-	}	else {
-		header = ITMH_DWORDLSB;
-	}
-
-	switch (header) {
-	case ITMH_WORDLSB: 
-		idecode16u_lsb((char*)dsize, &len16); 
-		len = len16;
-		break;
-	case ITMH_WORDMSB:
-		idecode16u_msb((char*)dsize, &len16); 
-		len = len16;
-		break;
-	case ITMH_DWORDLSB:
-		idecode32u_lsb((char*)dsize, &len32);
-		if (client->header == ITMH_DWORDMASK) len32 &= 0xffffff;
-		len = len32;
-		break;
-	case ITMH_DWORDMSB:
-		idecode32u_msb((char*)dsize, &len32);
-		len = len32;
-		break;
-	case ITMH_BYTELSB:
-		idecode8u((char*)dsize, &len8);
-		len = len8;
-		break;
-	case ITMH_BYTEMSB:
-		idecode8u((char*)dsize, &len8);
-		len = len8;
-		break;
-	}
-
-	len += hdrinc;
-
-	if (ims_dsize(&client->recvmsg) < (ilong)len) return 0;
-	return (int)len;
-}
-
-int itmc_send(struct ITMCLIENT *client, const void *ptr, int size, int mask)
-{
-	unsigned char dsize[4];
-	int header;
-	int hdrlen;
-	int hdrinc;
-	IUINT32 len;
-
-	assert(client);
-
-	hdrlen = itmc_head_len[client->header];
-	hdrinc = itmc_head_inc[client->header];
-
-	if (client->header != ITMH_DWORDMASK) {
-		header = (client->header < 6)? client->header : client->header - 6;
-		len = (IUINT32)size + hdrlen - hdrinc;
-		switch (header) {
-		case ITMH_WORDLSB:
-			iencode16u_lsb((char*)dsize, (IUINT16)len);
-			break;
-		case ITMH_WORDMSB:
-			iencode16u_msb((char*)dsize, (IUINT16)len);
-			break;
-		case ITMH_DWORDLSB:
-			iencode32u_lsb((char*)dsize, (IUINT32)len);
-			break;
-		case ITMH_DWORDMSB:
-			iencode32u_msb((char*)dsize, (IUINT32)len);
-			break;
-		case ITMH_BYTELSB:
-			iencode8u((char*)dsize, (IUINT8)len);
-			break;
-		case ITMH_BYTEMSB:
-			iencode8u((char*)dsize, (IUINT8)len);
-			break;
-		}
-	}	else {
-		len = (IUINT32)size + hdrlen - hdrinc;
-		len = (len & 0xffffff) | ((((IUINT32)mask) & 0xff) << 24);
-		iencode32u_lsb((char*)dsize, (IUINT32)len);
-	}
-
-	if (client->rc4_send_x < 0 || client->rc4_send_y < 0) {
-		ims_write(&client->sendmsg, dsize, hdrlen);
-		ims_write(&client->sendmsg, ptr, size);
-	}	else {
-		unsigned char *buffer = (unsigned char*)client->buffer;
-		const unsigned char *lptr = (const unsigned char*)ptr;
-		long length = size;
-		icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x, 
-			&client->rc4_send_y, dsize, dsize, hdrlen);
-		ims_write(&client->sendmsg, dsize, hdrlen);
-		for (; length > 0; ) {
-			long canread = (length > ITMC_BUFSIZE)? ITMC_BUFSIZE : length;
-			icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x, 
-				&client->rc4_send_y, lptr, buffer, canread);
-			ims_write(&client->sendmsg, buffer, canread);
-			length -= canread;
-			lptr += canread;
-		}
-	}
-
-	return 0;
-}
-
-
-int itmc_recv(struct ITMCLIENT *client, void *ptr, int size)
-{
-	int hdrlen, len;
-
-	assert(client);
-
-	hdrlen = itmc_head_len[client->header];
-
-	len = itmc_dsize(client);
-	if (len <= 0) return -1;
-
-	ims_drop(&client->recvmsg, hdrlen);
-	len -= hdrlen;
-
-	if (len > size) {
-		ims_read(&client->recvmsg, ptr, size);
-		ims_drop(&client->recvmsg, len - size);
-		return size;
-	}
-
-	ims_read(&client->recvmsg, ptr, len);
-
-	return len;
-}
-
-
-int itmc_vsend(struct ITMCLIENT *client, const void *vecptr[], 
-	int veclen[], int count, int mask)
-{
-	unsigned char dsize[4];
-	IUINT32 len;
-	int hdrlen;
-	int hdrinc;
-	int header;
-	int size;
-	int i;
-
-	assert(client);
-
-	for (size = 0, i = 0; i < count; i++) 
-		size += veclen[i];
-
-	hdrlen = itmc_head_len[client->header];
-	hdrinc = itmc_head_inc[client->header];
-
-	if (client->header != ITMH_DWORDMASK) {
-		header = (client->header < 6)? client->header : client->header - 6;
-		len = (IUINT32)size + hdrlen - hdrinc;
-
-		switch (header) {
-		case ITMH_WORDLSB:
-			iencode16u_lsb((char*)dsize, (IUINT16)len);
-			break;
-		case ITMH_WORDMSB:
-			iencode16u_msb((char*)dsize, (IUINT16)len);
-			break;
-		case ITMH_DWORDLSB:
-			iencode32u_lsb((char*)dsize, (IUINT32)len);
-			break;
-		case ITMH_DWORDMSB:
-			iencode32u_msb((char*)dsize, (IUINT32)len);
-			break;
-		case ITMH_BYTELSB:
-			iencode8u((char*)dsize, (IUINT8)len);
-			break;
-		case ITMH_BYTEMSB:
-			iencode8u((char*)dsize, (IUINT8)len);
-			break;
-		}
-	}	else {
-		len = (IUINT32)size + hdrlen - hdrinc;
-		len = (len & 0xffffff) | ((((IUINT32)mask) & 0xff) << 24);
-		iencode32u_lsb((char*)dsize, (IUINT32)len);
-	}
-
-	if (client->rc4_send_x >= 0 && client->rc4_send_y >= 0) {
-		icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x,
-			&client->rc4_send_y, dsize, dsize, hdrlen);
-	}
-
-	ims_write(&client->sendmsg, dsize, hdrlen);
-
-	for (i = 0; i < count; i++) {
-		if (client->rc4_send_x < 0 || client->rc4_send_y < 0) {
-			ims_write(&client->sendmsg, vecptr[i], veclen[i]);
-		}	else {
-			unsigned char *buffer = (unsigned char*)client->buffer;
-			const unsigned char *lptr = (const unsigned char*)vecptr[i];
-			long size = veclen[i];
-			for (; size > 0; ) {
-				long canread = (size > ITMC_BUFSIZE)? ITMC_BUFSIZE : size;
-				icrypt_rc4_crypt(client->rc4_send_box, &client->rc4_send_x, 
-					&client->rc4_send_y, lptr, buffer, canread);
-				ims_write(&client->sendmsg, buffer, canread);
-				size -= canread;
-				lptr += canread;
-			}
-		}
-	}
-
-	return 0;
-}
-
-int itmc_wait(struct ITMCLIENT *client, int millisec)
-{
-	IUINT32 clock = 0;
-	int retval;
-	if (client == NULL) return 0;
-	if (client->sock < 0) return 0;
-
-	while (1) {
-		itmc_process(client);
-		if (itmc_dsize(client) > 0) return ISOCK_ERECV;
-		if (client->state == ITMC_STATE_CLOSED) return ISOCK_ERROR;
-
-		if (millisec > 0) {
-			if (millisec <= (int)clock) return 0;
-			millisec -= (int)clock;
-		}
-
-		clock = iclock();
-		retval = ipollfd(client->sock, ISOCK_ERECV | ISOCK_ERROR, millisec);
-		clock = iclock() - clock;
-	}
-
-	return 0;
-}
-
-void itmc_rc4_set_skey(struct ITMCLIENT *client, 
-	const unsigned char *key, int keylen)
-{
-	if (client->rc4_send_box) {
-		icrypt_rc4_init(client->rc4_send_box, &client->rc4_send_x,
-			&client->rc4_send_y, key, keylen);
-	}
-}
-
-void itmc_rc4_set_rkey(struct ITMCLIENT *client, 
-	const unsigned char *key, int keylen)
-{
-	if (client->rc4_recv_box) {
-		icrypt_rc4_init(client->rc4_recv_box, &client->rc4_recv_x,
-			&client->rc4_recv_y, key, keylen);
-	}
-}
-
-
-/*===================================================================*/
-/* ITMHOST                                                           */
-/*===================================================================*/
-void itms_init(struct ITMHOST *host, struct IMEMNODE *cache, int header)
-{
-	assert(host);
-	host->needfree = 0;
-	host->cache = cache;
-	host->nodes = imnode_create(sizeof(struct ITMCLIENT), 64);
-	if (host->cache == NULL) {
-		host->cache = imnode_create(2048, 64);
-		host->needfree = 1;
-	}
-	assert(host->nodes && host->cache);
-	host->buffer = (char*)ikmem_malloc(0x10000);
-	assert(host->buffer);
-	host->index = 1;
-	host->limit = 64 * 1024 * 1024;
-	host->port = -1;
-	host->sock = -1;
-	host->state = 0;
-	host->count = 0;
-	host->header = header;
-	host->timeout = 60000;
-	ims_init(&host->event, host->cache, 0, 0);
-}
-
-void itms_destroy(struct ITMHOST *host)
-{
-	assert(host);
-	itms_shutdown(host);
-	ims_destroy(&host->event);
-	if (host->buffer) ikmem_free(host->buffer);
-	host->buffer = NULL;
-	if (host->nodes) imnode_delete(host->nodes);
-	host->nodes = NULL;
-	if (host->needfree) {
-		imnode_delete(host->cache);
-		host->needfree = 0;
-	}
-	host->cache = NULL;
-	host->sock = -1;
-	host->state = 0;
-	host->count = 0;
-	host->timeout = 60000;
-}
-
-int itms_startup(struct ITMHOST *host, int port)
-{
-	struct sockaddr local;
-	assert(host);
-	itms_shutdown(host);
-	ims_clear(&host->event);
-	host->sock = (int)socket(AF_INET, SOCK_STREAM, 0);
-	if (host->sock < 0) return -1;
-	memset(&local, 0, sizeof(local));
-	ienable(host->sock, ISOCK_REUSEADDR);
-	isockaddr_makeup(&local, "0.0.0.0", port);
-	if (ibind(host->sock, &local, 0) != 0) {
-		iclose(host->sock);
-		host->sock = -1;
-		return -2;
-	}
-	ienable(host->sock, ISOCK_NOBLOCK);
-	if (ilisten(host->sock, 10000) != 0) {
-		iclose(host->sock);
-		host->sock = -1;
-		return -3;
-	}
-	isockname(host->sock, &local, 0);
-	host->port = isockaddr_get_port(&local);
-	host->index = 1;
-	host->count = 0;
-	host->state = 1;
-	return 0;
-}
-
-static inline struct ITMCLIENT *itms_client(struct ITMHOST *host, long hid)
-{
-	struct ITMCLIENT *client;
-	long index = hid & 0xffff;
-	if (index < 0 || index >= host->nodes->node_max) return NULL;
-	if (IMNODE_MODE(host->nodes, index) == 0) return NULL;
-	client = (struct ITMCLIENT*)IMNODE_DATA(host->nodes, index);
-	if (client->hid != hid) return NULL;
-	return client;
-}
-
-static inline void itms_push(struct ITMHOST *host, int event, long wparam,
-	long lparam, const void *data, long size)
-{
-	char head[14];
-	size = size < 0 ? 0 : size;
-	iencode32u_lsb(head, (long)(size + 14));
-	iencode16u_lsb(head + 4, (unsigned short)event);
-	iencode32u_lsb(head + 6, wparam);
-	iencode32u_lsb(head + 10, lparam);
-	ims_write(&host->event, head, 14);
-	ims_write(&host->event, data, size);
-}
-
-int itms_shutdown(struct ITMHOST *host)
-{
-	long hid;
-	assert(host);
-	for (; ; ) {
-		hid = itms_head(host);
-		if (hid < 0) break;
-		itms_close(host, hid, 0);
-	}
-	ims_clear(&host->event);
-	if (host->sock >= 0) iclose(host->sock);
-	host->sock = -1;
-	host->state = 0;
-	host->count = 0;
-	host->index = 1;
-	return 0;
-}
-
-void itms_process(struct ITMHOST *host)
-{
-	long index, next, size, delta;
-	unsigned long current;
-	struct ITMCLIENT *client;
-	struct sockaddr remote;
-	int sock, error;
-
-	assert(host);
-	if (host->state != 1) return;
-
-	current = iclock();
-
-	for (; ; ) {
-		sock = iaccept(host->sock, &remote, NULL);
-		if (sock < 0) break;
-		if (host->count >= 0x10000) {
-			iclose(sock);
-			continue;
-		}
-		index = imnode_new(host->nodes);
-		if (index < 0) {
-			iclose(sock);
-			continue;
-		}
-		client = (struct ITMCLIENT*)IMNODE_DATA(host->nodes, index);
-		itmc_init(client, host->cache, host->header);
-		itmc_assign(client, sock);
-		client->hid = (host->index << 16) | index;
-		host->index++;
-		if (host->index >= 0x7fff) host->index = 1;
-		client->tag = -1;
-		client->time = current;
-		host->count++;
-		itms_push(host, ITME_NEW, client->hid, -1, &remote, sizeof(remote));
-	}
-
-	for (index = imnode_head(host->nodes); index >= 0; ) {
-		next = imnode_next(host->nodes, index);
-		client = (struct ITMCLIENT*)IMNODE_DATA(host->nodes, index);
-
-		if (client->state == 2) {
-			itmc_try_send(client);
-			if (host->event.size <= (IUINT32)host->limit) {
-				itmc_try_recv(client);
-				for (; ; ) {
-					size = itmc_recv(client, host->buffer, 0x10000);
-					if (size <= 0) break;
-					itms_push(host, ITME_DATA, client->hid, client->tag,
-						host->buffer, size);
-					client->time = current;
-				}
-			}
-		}
-
-		delta = (long)(current - client->time);
-		if (client->state != 2 || delta >= host->timeout) {
-			error = client->error;
-			if (error == -1) error = 0;
-			itms_close(host, client->hid, error);
-		}
-		
-		index = next;
-	}
-}
-
-void itms_send(struct ITMHOST *host, long hid, const void *data, long size)
-{
-	struct ITMCLIENT *client;
-	assert(host);
-	client = itms_client(host, hid);
-	if (client == NULL) return;
-	itmc_send(client, data, size, 0);
-}
-
-void itms_close(struct ITMHOST *host, long hid, int reason)
-{
-	struct ITMCLIENT *client;
-	client = itms_client(host, hid);
-	if (client == NULL) return;
-	itms_push(host, ITME_LEAVE, client->hid, client->tag, &reason, 4);
-	if (client->sock >= 0) iclose(client->sock);
-	client->sock = -1;
-	client->hid = -1;
-	client->tag = -1;
-	client->buffer = NULL;
-	ims_destroy(&client->sendmsg);
-	ims_destroy(&client->recvmsg);
-	imnode_del(host->nodes, (hid & 0xffff));
-	host->count--;
-}
-
-void itms_settag(struct ITMHOST *host, long hid, long tag)
-{
-	struct ITMCLIENT *client;
-	client = itms_client(host, hid);
-	if (client == NULL) return;
-	client->tag = tag;
-}
-
-long itms_gettag(struct ITMHOST *host, long hid)
-{
-	struct ITMCLIENT *client;
-	client = itms_client(host, hid);
-	if (client == NULL) return -1;
-	return client->tag;
-}
-
-void itms_nodelay(struct ITMHOST *host, long hid, int nodelay)
-{
-	struct ITMCLIENT *client;
-	assert(host);
-	client = itms_client(host, hid);
-	if (client == NULL) return;
-	itmc_nodelay(client, nodelay);
-}
-
-long itms_read(struct ITMHOST *host, int *msg, long *wparam, long *lparam,
-	void *data, long size)
-{
-	char head[14];
-	struct ITMCLIENT *client;
-	long length, canread, id;
-	long WPARAM, LPARAM;
-	IUINT32 x; IUINT16 y;
-	int EVENT;
-
-	assert(host);
-	length = ims_peek(&host->event, head, 14);
-	if (msg) *msg = -1;
-	if (length != 14) return -1;
-	
-	idecode32u_lsb(head, &x);
-	length = x;
-
-	assert(host->event.size >= (IUINT32)length && length >= 14);
-
-	ims_drop(&host->event, 14);
-	length -= 14;
-	canread = length < size ? length : size;
-	if (data) ims_read(&host->event, data, canread);
-	else ims_drop(&host->event, canread);
-	if (canread < length) ims_drop(&host->event, length - canread);
-
-	idecode16u_lsb(head + 4, &y);
-	EVENT = y;
-	idecode32u_lsb(head + 6, &x);
-	WPARAM = (long)x;
-	idecode32u_lsb(head + 10, &x);
-	LPARAM = (long)x;
-
-	if (EVENT == ITME_DATA || EVENT == ITME_LEAVE) {
-		id = WPARAM & 0xffff;
-		if (id >= 0 && id < host->nodes->node_max) {
-			client = (struct ITMCLIENT*)IMNODE_DATA(host->nodes, id);
-			if (client->hid == WPARAM) LPARAM = client->tag;
-		}
-	}
-
-	if (msg) *msg = EVENT;
-	if (wparam) *wparam = WPARAM;
-	if (lparam) *lparam = LPARAM;
-
-	return canread;
-}
-
-long itms_head(struct ITMHOST *host)
-{
-	struct ITMCLIENT *client;
-	long index;
-	index = imnode_head(host->nodes);
-	if (index < 0) return -1;
-	client = (struct ITMCLIENT*)IMNODE_DATA(host->nodes, index);
-	return client->hid;
-}
-
-long itms_next(struct ITMHOST *host, long hid)
-{
-	struct ITMCLIENT *client;
-	long index;
-	index = hid & 0xffff;
-	if (index < 0 || index >= host->nodes->node_max) return -1;
-	client = (struct ITMCLIENT*)IMNODE_DATA(host->nodes, index);
-	if (client->hid != hid) return -1;
-	index = IMNODE_NEXT(host->nodes, index);
-	if (index < 0) return -1;
-	client = (struct ITMCLIENT*)IMNODE_DATA(host->nodes, index);
-	return client->hid;
-}
 
 
 
@@ -2199,9 +2843,9 @@ int icsv_writer_push_double(iCsvWriter *writer, double x)
 }
 
 
-/*==================================================================*/
-/* loop running per fix interval                                    */
-/*===================================================================*/
+//=====================================================================
+// loop running per fix interval 
+//=====================================================================
 
 void ifix_interval_start(IUINT32* time)
 {
@@ -2219,3 +2863,5 @@ void ifix_interval_running(IUINT32 *time, long interval)
 	}
 	*time += interval;
 }
+
+

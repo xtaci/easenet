@@ -1096,122 +1096,6 @@ protected:
 };
 
 
-//---------------------------------------------------------------------
-// netstream
-//---------------------------------------------------------------------
-class NetStream
-{
-public:
-	// 头部格式定义
-	enum HeaderMode
-	{
-		HEADER_WORDLSB		= 0,	// 头部标志：2字节LSB
-		HEADER_WORDMSB		= 1,	// 头部标志：2字节MSB
-		HEADER_DWORDLSB		= 2,	// 头部标志：4字节LSB
-		HEADER_DWORDMSB		= 3,	// 头部标志：4字节MSB
-		HEADER_BYTELSB		= 4,	// 头部标志：单字节LSB
-		HEADER_BYTEMSB		= 5,	// 头部标志：单字节MSB
-		HEADER_EWORDLSB		= 6,	// 头部标志：2字节LSB（不包含自己）
-		HEADER_EWORDMSB		= 7,	// 头部标志：2字节MSB（不包含自己）
-		HEADER_EDWORDLSB	= 8,	// 头部标志：4字节LSB（不包含自己）
-		HEADER_EDWORDMSB	= 9,	// 头部标志：4字节MSB（不包含自己）
-		HEADER_EBYTELSB		= 10,	// 头部标志：单字节LSB（不包含自己）
-		HEADER_EBYTEMSB		= 11,	// 头部标志：单字节MSB（不包含自己）
-		HEADER_DWORDMASK	= 12,	// 头部标志：4字节LSB（包含自己和掩码）
-	};
-
-	// 网络状态
-	enum NetState
-	{
-		STATE_CLOSED = 0,
-		STATE_CONNECTING = 1,
-		STATE_ESTABLISHED = 2,
-	};
-
-public:
-	virtual ~NetStream() {
-		CriticalScope scope_lock(lock);
-		itmc_destroy(&client);
-	}
-
-	NetStream(HeaderMode header = HEADER_WORDLSB) {
-		CriticalScope scope_lock(lock);
-		itmc_init(&client, NULL, (int)header);
-	}
-
-	int connect(unsigned long ip, int port) {
-		CriticalScope scope_lock(lock);
-		sockaddr remote;
-		isockaddr_set(&remote, ip, port);
-		return itmc_connect(&client, &remote);
-	}
-
-	int connect(const char *ip, int port) {
-		CriticalScope scope_lock(lock);
-		sockaddr remote;
-		isockaddr_makeup(&remote, ip, port);
-		return itmc_connect(&client, &remote);
-	}
-
-	int connect(const sockaddr *remote) {
-		CriticalScope scope_lock(lock);
-		return itmc_connect(&client, remote);
-	}
-
-	int assign(int sock) {
-		CriticalScope scope_lock(lock);
-		return itmc_assign(&client, sock);
-	}
-
-	void close() {
-		CriticalScope scope_lock(lock);
-		itmc_close(&client);
-	}
-
-	void process() {
-		CriticalScope scope_lock(lock);
-		itmc_process(&client);
-	}
-
-	NetState status() const {
-		return (NetState)client.state;
-	}
-
-	void nodelay(bool nodelay) {
-		CriticalScope scope_lock(lock);
-		itmc_nodelay(&client, nodelay? 1 : 0);
-	}
-
-	int wait(int millisec = 0) {
-		CriticalScope scope_lock(lock);
-		return itmc_wait(&client, millisec);
-	}
-
-	int size() {
-		CriticalScope scope_lock(lock);
-		return itmc_dsize(&client);
-	}
-
-	int send(const void *ptr, int size, int mask = 0) {
-		CriticalScope scope_lock(lock);
-		return itmc_send(&client, ptr, size, mask);
-	}
-
-	int recv(void *ptr, int size) {
-		CriticalScope scope_lock(lock);
-		return itmc_recv(&client, ptr, size);
-	}
-
-	int send(const void *vecptr[], int veclen[], int count, int mask = 0) {
-		CriticalScope scope_lock(lock);
-		return itmc_vsend(&client, vecptr, veclen, count, mask);
-	}
-
-protected:
-	ITMCLIENT client;
-	CriticalSection lock;
-};
-
 static inline bool NetworkInit()
 {
 	return (inet_init() == 0)? true : false;
@@ -1551,6 +1435,5 @@ NAMESPACE_END(System)
 
 
 #endif
-
 
 
