@@ -1595,7 +1595,7 @@ long async_core_remain(const CAsyncCore *core, long hid)
 
 
 // set connection socket option
-int async_core_option(CAsyncCore *core, long hid, int type, int enable)
+int async_core_option(CAsyncCore *core, long hid, int type, int value)
 {
 	int hr = -100;
 	CAsyncSock *sock = async_core_node_get(core, hid);
@@ -1605,25 +1605,31 @@ int async_core_option(CAsyncCore *core, long hid, int type, int enable)
 
 	switch (type) {
 	case ASYNC_CORE_OPTION_NODELAY:
-		if (enable == 0) {
+		if (value == 0) {
 			hr = idisable(sock->fd, ISOCK_NODELAY);
 		}	else {
 			hr = ienable(sock->fd, ISOCK_NODELAY);
 		}
 		break;
 	case ASYNC_CORE_OPTION_REUSEADDR:
-		if (enable == 0) {
+		if (value == 0) {
 			hr = idisable(sock->fd, ISOCK_REUSEADDR);
 		}	else {
 			hr = ienable(sock->fd, ISOCK_REUSEADDR);
 		}
 		break;
 	case ASYNC_CORE_OPTION_KEEPALIVE:
-		if (enable == 0) {
+		if (value == 0) {
 			hr = ikeepalive(sock->fd, 5, 40, 1);
 		}	else {
 			hr = ikeepalive(sock->fd, -1, -1, -1);
 		}
+		break;
+	case ASYNC_CORE_OPTION_SYSSNDBUF:
+		hr = inet_set_bufsize(sock->fd, -1, value);
+		break;
+	case ASYNC_CORE_OPTION_SYSRCVBUF:
+		hr = inet_set_bufsize(sock->fd, value, -1);
 		break;
 	}
 	return hr;

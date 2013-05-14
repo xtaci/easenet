@@ -168,6 +168,15 @@ void async_sock_rc4_set_skey(CAsyncSock *asyncsock,
 void async_sock_rc4_set_rkey(CAsyncSock *asyncsock, 
 	const unsigned char *key, int keylen);
 
+// set nodelay
+int async_sock_nodelay(CAsyncSock *asyncsock, int nodelay);
+
+// set buf size
+int async_sock_sys_buffer(CAsyncSock *asyncsock, long rcvbuf, long sndbuf);
+
+// set keepalive
+int async_sock_keepalive(CAsyncSock *asyncsock, int keepcnt, int keepidle,
+	int keepintvl);
 
 
 //=====================================================================
@@ -258,6 +267,8 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_NODELAY		1
 #define ASYNC_CORE_OPTION_REUSEADDR		2
 #define ASYNC_CORE_OPTION_KEEPALIVE		3
+#define ASYNC_CORE_OPTION_SYSSNDBUF		4
+#define ASYNC_CORE_OPTION_SYSRCVBUF		5
 
 // set connection socket option
 int async_core_option(CAsyncCore *core, long hid, int type, int value);
