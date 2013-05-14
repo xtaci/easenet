@@ -1010,11 +1010,11 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 		}
 	}
 
-	value = 1;
+	value = enable? 1 : 0;
 	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, 
 		sizeof(value));
 
-	if (candoit) {
+	if (candoit && enable) {
 		int ret = 0;
 		keepalive[0] = enable? 1 : 0;
 		keepalive[1] = ((unsigned long)keepidle) * 1000;
@@ -1031,7 +1031,7 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 
 #elif defined(SOL_TCL) && defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL)
 
-	value = 1;
+	value = enable? 1 : 0;
 	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
 	value = keepcnt;
 	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (char*)&value, sizeof(long));
@@ -1039,11 +1039,10 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (char*)&value, sizeof(long));
 	value = keepintvl;
 	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (char*)&value, sizeof(long));
-	value = enable;
-#else
-	value = 1;
+#elif defined(SO_KEEPALIVE)
+	value = enable? 1 : 0;
 	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
-	value = enable;
+#else
 	return -1;
 #endif
 

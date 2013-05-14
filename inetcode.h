@@ -22,9 +22,9 @@ extern "C" {
 #endif
 
 
-//---------------------------------------------------------------------
+//=====================================================================
 // Network Information
-//---------------------------------------------------------------------
+//=====================================================================
 #define IMAX_HOSTNAME	256
 #define IMAX_ADDRESS	64
 
@@ -50,9 +50,223 @@ int inet_updateaddr(int resolvname);
 int inet_socketpair(int fds[2]);
 
 
-//---------------------------------------------------------------------
+//=====================================================================
+// CAsyncSock 
+//=====================================================================
+struct CAsyncSock
+{
+	IUINT32 time;					// timeout
+	int fd;							// socket fd
+	int state;						// CLOSED/CONNECTING/ESTABLISHED
+	long hid;						// hid
+	long tag;						// tag
+	int error;						// errno value
+	int header;						// header mode (0-13)
+	int mask;						// poll event mask
+	int mode;						// socket mode
+	int ipv6;						// 0:ipv4, 1:ipv6
+	char *buffer;					// internal working buffer
+	char *external;					// external working buffer
+	long bufsize;					// working buffer size
+	long maxsize;					// max packet size
+	int rc4_send_x;					// rc4 encryption variable 
+	int rc4_send_y;					// rc4 encryption variable 
+	int rc4_recv_x;					// rc4 encryption variable 
+	int rc4_recv_y;					// rc4 encryption variable 
+	struct IQUEUEHEAD node;			// list node
+	struct IMSTREAM sendmsg;		// send buffer
+	struct IMSTREAM recvmsg;		// recv buffer
+	unsigned char rc4_send_box[256];	
+	unsigned char rc4_recv_box[256];
+};
+
+
+#ifndef ITMH_WORDLSB
+#define ITMH_WORDLSB		0		// header: 2 bytes LSB
+#define ITMH_WORDMSB		1		// header: 2 bytes MSB
+#define ITMH_DWORDLSB		2		// header: 4 bytes LSB
+#define ITMH_DWORDMSB		3		// header: 4 bytes MSB
+#define ITMH_BYTELSB		4		// header: 1 byte LSB
+#define ITMH_BYTEMSB		5		// header: 1 byte MSB
+#define ITMH_EWORDLSB		6		// header: 2 bytes LSB (exclude self)
+#define ITMH_EWORDMSB		7		// header: 2 bytes MSB (exclude self)
+#define ITMH_EDWORDLSB		8		// header: 4 bytes LSB (exclude self)
+#define ITMH_EDWORDMSB		9		// header: 4 bytes MSB (exclude self)
+#define ITMH_EBYTELSB		10		// header: 1 byte LSB (exclude self)
+#define ITMH_EBYTEMSB		11		// header: 1 byte MSB (exclude self)
+#define ITMH_DWORDMASK		12		// header: 4 bytes LSB (self and mask)
+#endif
+
+#define ASYNC_SOCK_STATE_CLOSED			0
+#define ASYNC_SOCK_STATE_CONNECTING		1
+#define ASYNC_SOCK_STATE_ESTAB			2
+
+typedef struct CAsyncSock CAsyncSock;
+
+
+// create a new asyncsock
+void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes);
+
+// delete asyncsock
+void async_sock_destroy(CAsyncSock *asyncsock);
+
+
+// connect to remote address
+int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
+	int addrlen, int header);
+
+// assign a new socket
+int async_sock_assign(CAsyncSock *asyncsock, int sock, int header);
+
+// close socket
+void async_sock_close(CAsyncSock *asyncsock);
+
+
+// get state
+int async_sock_state(const CAsyncSock *asyncsock);
+
+// get fd
+int async_sock_fd(const CAsyncSock *asyncsock);
+
+// get how many bytes remain in the send buffer
+long async_sock_remain(const CAsyncSock *asyncsock);
+
+
+// send data
+long async_sock_send(CAsyncSock *asyncsock, const void *ptr, 
+	long size, int mask);
+
+// recv vector: returns packet size, -1 for not enough data, -2 for 
+// buffer size too small, -3 for packet size error, -4 for size over limit,
+// returns packet size if ptr equals NULL.
+long async_sock_recv(CAsyncSock *asyncsock, void *ptr, int size);
+
+
+// send vector
+long async_sock_send_vector(CAsyncSock *asyncsock, const void *vecptr[],
+	const long veclen[], int count, int mask);
+
+// recv vector: returns packet size, -1 for not enough data, -2 for 
+// buffer size too small, -3 for packet size error, -4 for size over limit,
+// returns packet size if vecptr equals NULL.
+long async_sock_recv_vector(CAsyncSock *asyncsock, void *vecptr[], 
+	const long veclen[], int count);
+
+
+// update
+int async_sock_update(CAsyncSock *asyncsock, int what);
+
+// process
+void async_sock_process(CAsyncSock *asyncsock);
+
+
+// set send cryption key
+void async_sock_rc4_set_skey(CAsyncSock *asyncsock, 
+	const unsigned char *key, int keylen);
+
+// set recv cryption key
+void async_sock_rc4_set_rkey(CAsyncSock *asyncsock, 
+	const unsigned char *key, int keylen);
+
+
+
+//=====================================================================
+// CAsyncCore
+//=====================================================================
+struct CAsyncCore;
+typedef struct CAsyncCore CAsyncCore;
+
+#define ASYNC_CORE_EVT_NEW		0	// new: (hid, tag)
+#define ASYNC_CORE_EVT_LEAVE	1	// leave: (hid, tag)
+#define ASYNC_CORE_EVT_ESTAB	2	// estab: (hid, tag)
+#define ASYNC_CORE_EVT_DATA		3	// data: (hid, tag)
+
+#define ASYNC_CORE_NODE_IN			1		// accepted node
+#define ASYNC_CORE_NODE_OUT			2		// connected out node
+#define ASYNC_CORE_NODE_LISTEN4		3		// ipv4 listener
+#define ASYNC_CORE_NODE_LISTEN6		4		// ipv6 listener
+
+
+// new CAsyncCore object
+CAsyncCore* async_core_new(void);
+
+// delete async core
+void async_core_delete(CAsyncCore *core);
+
+
+// wait for events for millisec ms. and process events, 
+// if millisec equals zero, no wait.
+void async_core_process(CAsyncCore *core, IUINT32 millisec);
+
+// read events, returns data length of the message, 
+// and returns -1 for no event, -2 for buffer size too small,
+long async_core_read(CAsyncCore *core, int *event, long *wparam,
+	long *lparam, void *data, long size);
+
+
+// send data to given hid
+long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len);
+
+// close given hid
+int async_core_close(CAsyncCore *core, long hid, int code);
+
+// send vector
+long async_core_send_vector(CAsyncCore *core, long hid, const void *vecptr[],
+	const long veclen[], int count, int mask);
+
+
+// new connection to the target address, returns hid
+long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
+	int addrlen, int header);
+
+// new listener, returns hid
+long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr, 
+	int addrlen, int header);
+
+
+// get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6
+int async_core_get_mode(const CAsyncCore *core, long hid);
+
+// returns connection tag, -1 for hid not exist
+long async_core_get_tag(const CAsyncCore *core, long hid);
+
+// set connection tag
+void async_core_set_tag(CAsyncCore *core, long hid, long tag);
+
+// get send queue size
+long async_core_remain(const CAsyncCore *core, long hid);
+
+
+// get first node
+long async_core_node_head(const CAsyncCore *core);
+
+// get next node
+long async_core_node_next(const CAsyncCore *core, long hid);
+
+// get prev node
+long async_core_node_prev(const CAsyncCore *core, long hid);
+
+
+#define ASYNC_CORE_OPTION_NODELAY		1
+#define ASYNC_CORE_OPTION_REUSEADDR		2
+#define ASYNC_CORE_OPTION_KEEPALIVE		3
+
+// set connection socket option
+int async_core_option(CAsyncCore *core, long hid, int type, int value);
+
+// set connection rc4 send key
+int async_core_rc4_set_skey(CAsyncCore *core, long hid, 
+	const unsigned char *key, int keylen);
+
+// set connection rc4 recv key
+int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
+	const unsigned char *key, int keylen);
+
+
+
+//=====================================================================
 // System Utilities
-//---------------------------------------------------------------------
+//=====================================================================
 
 #ifndef IDISABLE_SHARED_LIBRARY
 
@@ -86,127 +300,6 @@ int iutils_get_proc_pathname(char *ptr, int size);
 
 
 //---------------------------------------------------------------------
-// ITMCLIENT
-//---------------------------------------------------------------------
-struct ITMCLIENT
-{
-	IUINT32 time;
-	int sock;
-	int state;
-	long hid;
-	long tag;
-	int error;
-	int header;
-	char *buffer;
-	int rc4_send_x;
-	int rc4_send_y;
-	int rc4_recv_x;
-	int rc4_recv_y;
-	unsigned char *rc4_send_box;
-	unsigned char *rc4_recv_box;
-	struct sockaddr local;
-	struct IMSTREAM sendmsg;
-	struct IMSTREAM recvmsg;
-};
-
-#ifndef ITMH_WORDLSB
-#define ITMH_WORDLSB		0		// 头部标志：2字节LSB
-#define ITMH_WORDMSB		1		// 头部标志：2字节MSB
-#define ITMH_DWORDLSB		2		// 头部标志：4字节LSB
-#define ITMH_DWORDMSB		3		// 头部标志：4字节MSB
-#define ITMH_BYTELSB		4		// 头部标志：单字节LSB
-#define ITMH_BYTEMSB		5		// 头部标志：单字节MSB
-#define ITMH_EWORDLSB		6		// 头部标志：2字节LSB（不包含自己）
-#define ITMH_EWORDMSB		7		// 头部标志：2字节MSB（不包含自己）
-#define ITMH_EDWORDLSB		8		// 头部标志：4字节LSB（不包含自己）
-#define ITMH_EDWORDMSB		9		// 头部标志：4字节MSB（不包含自己）
-#define ITMH_EBYTELSB		10		// 头部标志：单字节LSB（不包含自己）
-#define ITMH_EBYTEMSB		11		// 头部标志：单字节MSB（不包含自己）
-#define ITMH_DWORDMASK		12		// 头部标志：4字节LSB（自己和掩码）
-#endif
-
-#define ITMC_STATE_CLOSED		0	// 状态：关闭
-#define ITMC_STATE_CONNECTING	1	// 状态：连接中
-#define ITMC_STATE_ESTABLISHED	2	// 状态：连接建立
-
-
-void itmc_init(struct ITMCLIENT *client, struct IMEMNODE *nodes, int header);
-void itmc_destroy(struct ITMCLIENT *client);
-
-int itmc_connect(struct ITMCLIENT *client, const struct sockaddr *addr);
-int itmc_assign(struct ITMCLIENT *client, int sock);
-int itmc_process(struct ITMCLIENT *client);
-int itmc_close(struct ITMCLIENT *client);
-int itmc_status(struct ITMCLIENT *client);
-int itmc_nodelay(struct ITMCLIENT *client, int nodelay);
-int itmc_dsize(const struct ITMCLIENT *client);
-
-int itmc_send(struct ITMCLIENT *client, const void *ptr, int size, int mask);
-int itmc_recv(struct ITMCLIENT *client, void *ptr, int size);
-
-
-int itmc_vsend(struct ITMCLIENT *client, const void *vecptr[], 
-	int veclen[], int count, int mask);
-
-int itmc_wait(struct ITMCLIENT *client, int millisec);
-
-void itmc_rc4_set_skey(struct ITMCLIENT *client, 
-	const unsigned char *key, int keylen);
-
-void itmc_rc4_set_rkey(struct ITMCLIENT *client, 
-	const unsigned char *key, int keylen);
-
-
-//---------------------------------------------------------------------
-// ITMHOST
-//---------------------------------------------------------------------
-struct ITMHOST
-{
-	struct IMEMNODE *nodes;
-	struct IMEMNODE *cache;
-	struct IMSTREAM event;
-	struct sockaddr local;
-	char *buffer;
-	int count;
-	int sock;
-	int port;
-	int state;
-	int index;
-	int limit;
-	int header;
-	int timeout;
-	int needfree;
-};
-
-void itms_init(struct ITMHOST *host, struct IMEMNODE *cache, int header);
-void itms_destroy(struct ITMHOST *host);
-
-int itms_startup(struct ITMHOST *host, int port);
-int itms_shutdown(struct ITMHOST *host);
-
-void itms_process(struct ITMHOST *host);
-
-void itms_send(struct ITMHOST *host, long hid, const void *data, long size);
-void itms_close(struct ITMHOST *host, long hid, int reason);
-void itms_settag(struct ITMHOST *host, long hid, long tag);
-long itms_gettag(struct ITMHOST *host, long hid);
-void itms_nodelay(struct ITMHOST *host, long hid, int nodelay);
-
-long itms_head(struct ITMHOST *host);
-long itms_next(struct ITMHOST *host, long hid);
-
-
-#define ITME_NEW	0	/* wparam=hid, lparam=-1, data=sockaddr */
-#define ITME_DATA	1	/* wparam=hid, lparam=tag, data=recvdata */
-#define ITME_LEAVE	2	/* wparam=hid, lparam=tag, data=reason */
-#define ITME_TIMER  3   /* wparam=-1, lparam=-1 */
-
-long itms_read(struct ITMHOST *host, int *msg, long *wparam, long *lparam,
-	void *data, long size);
-
-
-
-//---------------------------------------------------------------------
 // PROXY
 //---------------------------------------------------------------------
 struct ISOCKPROXY
@@ -225,14 +318,14 @@ struct ISOCKPROXY
 };
 
 
-#define ISOCKPROXY_TYPE_NONE	0		// 类型：无代理服务器
-#define ISOCKPROXY_TYPE_HTTP	1		// 类型：HTTP代理
-#define ISOCKPROXY_TYPE_SOCKS4	2		// 类型：SOCKS4代理
-#define ISOCKPROXY_TYPE_SOCKS5	3		// 类型：SOCKS5代理
+#define ISOCKPROXY_TYPE_NONE	0		// 类型: 无代理服务器
+#define ISOCKPROXY_TYPE_HTTP	1		// 类型: HTTP代理
+#define ISOCKPROXY_TYPE_SOCKS4	2		// 类型: SOCKS4代理
+#define ISOCKPROXY_TYPE_SOCKS5	3		// 类型: SOCKS5代理
 
 ///
 /// 初始化连接数据 ISOCKPROXY
-/// 选择 type有：ISOCKPROXY_TYPE_NONE, ISOCKPROXY_TYPE_HTTP, 
+/// 选择 type有: ISOCKPROXY_TYPE_NONE, ISOCKPROXY_TYPE_HTTP, 
 //  ISOCKPROXY_TYPE_SOCKS4, ISOCKPROXY_TYPE_SOCKS5
 /// 
 int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type, 
