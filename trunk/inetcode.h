@@ -281,6 +281,8 @@ int async_core_rc4_set_skey(CAsyncCore *core, long hid,
 int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 	const unsigned char *key, int keylen);
 
+// set remote ip validator
+void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 
 
 //=====================================================================
