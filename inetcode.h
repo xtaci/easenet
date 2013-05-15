@@ -69,6 +69,7 @@ struct CAsyncSock
 	char *external;					// external working buffer
 	long bufsize;					// working buffer size
 	long maxsize;					// max packet size
+	long limited;					// buffer limited
 	int rc4_send_x;					// rc4 encryption variable 
 	int rc4_send_y;					// rc4 encryption variable 
 	int rc4_recv_x;					// rc4 encryption variable 
@@ -250,8 +251,9 @@ void async_core_set_tag(CAsyncCore *core, long hid, long tag);
 // get send queue size
 long async_core_remain(const CAsyncCore *core, long hid);
 
-// set max_send_buffer_size and max_packet_size
-void async_core_limit(CAsyncCore *core, long maxbuff, long maxpktlen);
+// set default buffer limit and max packet size
+void async_core_limit(CAsyncCore *core, long limited, long maxsize);
+
 
 
 // get first node
@@ -269,9 +271,11 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_KEEPALIVE		3
 #define ASYNC_CORE_OPTION_SYSSNDBUF		4
 #define ASYNC_CORE_OPTION_SYSRCVBUF		5
+#define ASYNC_CORE_OPTION_LIMITED		6
+#define ASYNC_CORE_OPTION_MAXSIZE		7
 
 // set connection socket option
-int async_core_option(CAsyncCore *core, long hid, int type, int value);
+int async_core_option(CAsyncCore *core, long hid, int opt, long value);
 
 // set connection rc4 send key
 int async_core_rc4_set_skey(CAsyncCore *core, long hid, 
