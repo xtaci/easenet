@@ -210,6 +210,7 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->external = NULL;
 	asyncsock->bufsize = 0;
 	asyncsock->maxsize = ASYNC_SOCK_MAXSIZE;
+	asyncsock->limited = -1;
 	asyncsock->ipv6 = 0;
 	asyncsock->mask = 0;
 	asyncsock->error = 0;
@@ -799,7 +800,7 @@ struct CAsyncCore
 	ipolld pfd;
 	long bufsize;
 	long maxsize;
-	long maxbuff;
+	long limited;
 	char *buffer;
 	char *data;
 	void *user;
@@ -878,7 +879,7 @@ CAsyncCore* async_core_new(void)
 	core->current = iclock();
 	core->lastsec = 0;
 	core->maxsize = ASYNC_SOCK_MAXSIZE;
-	core->maxbuff = 0;
+	core->limited = 0;
 
 	return core;
 }
@@ -955,6 +956,7 @@ static long async_core_node_new(CAsyncCore *core)
 	sock->bufsize = core->bufsize;
 	sock->time = core->current;
 	sock->maxsize = core->maxsize;
+	sock->limited = core->limited;
 	iqueue_add_tail(&sock->node, &core->head);
 
 	core->count++;
@@ -1499,7 +1501,7 @@ long async_core_send_vector(CAsyncCore *core, long hid, const void *vecptr[],
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	long hr;
 	if (sock == NULL) return -100;
-	if (core->maxbuff > 0 && sock->sendmsg.size > core->maxbuff) {
+	if (sock->limited > 0 && sock->sendmsg.size > sock->limited) {
 		async_core_event_close(core, sock, 2005);
 		return -200;
 	}
@@ -1595,7 +1597,7 @@ long async_core_remain(const CAsyncCore *core, long hid)
 
 
 // set connection socket option
-int async_core_option(CAsyncCore *core, long hid, int type, int value)
+int async_core_option(CAsyncCore *core, long hid, int opt, long value)
 {
 	int hr = -100;
 	CAsyncSock *sock = async_core_node_get(core, hid);
@@ -1603,7 +1605,7 @@ int async_core_option(CAsyncCore *core, long hid, int type, int value)
 	if (sock == NULL) return -10;
 	if (sock->fd < 0) return -20;
 
-	switch (type) {
+	switch (opt) {
 	case ASYNC_CORE_OPTION_NODELAY:
 		if (value == 0) {
 			hr = idisable(sock->fd, ISOCK_NODELAY);
@@ -1631,6 +1633,14 @@ int async_core_option(CAsyncCore *core, long hid, int type, int value)
 	case ASYNC_CORE_OPTION_SYSRCVBUF:
 		hr = inet_set_bufsize(sock->fd, value, -1);
 		break;
+	case ASYNC_CORE_OPTION_MAXSIZE:
+		sock->maxsize = value;
+		hr = 0;
+		break;
+	case ASYNC_CORE_OPTION_LIMITED:
+		sock->limited = value;
+		hr = 0;
+		break;
 	}
 	return hr;
 }
@@ -1655,14 +1665,14 @@ int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 	return 0;
 }
 
-// set max_send_buffer_size and max_packet_size
-void async_core_limit(CAsyncCore *core, long maxbuff, long maxpktlen)
+// set default buffer limit and max packet size
+void async_core_limit(CAsyncCore *core, long limited, long maxsize)
 {
-	if (maxbuff >= 0) {
-		core->maxbuff = maxbuff;
+	if (limited >= 0) {
+		core->limited = limited;
 	}
-	if (maxpktlen >= 0) {
-		core->maxsize = maxpktlen;
+	if (maxsize >= 0) {
+		core->maxsize = maxsize;
 	}
 }
 
