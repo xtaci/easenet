@@ -1667,6 +1667,14 @@ void async_core_limit(CAsyncCore *core, long maxbuff, long maxpktlen)
 }
 
 
+// set remote ip validator
+void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user)
+{
+	core->validator = v;
+	core->user = user;
+}
+
+
 //---------------------------------------------------------------------
 // System Utilities
 //---------------------------------------------------------------------
