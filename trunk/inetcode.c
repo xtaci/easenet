@@ -36,7 +36,9 @@
 #endif
 
 #include <time.h>
+#ifdef __unix
 #include <sys/time.h>
+#endif
 #include <assert.h>
 
 
@@ -929,6 +931,7 @@ void async_core_delete(CAsyncCore *core)
 static long async_core_node_new(CAsyncCore *core)
 {
 	long index, id = -1;
+	CAsyncSock *sock;
 
 	if (core->nodes->node_used >= 0xffff) return -1;
 	index = (long)imnode_new(core->nodes);
@@ -943,7 +946,7 @@ static long async_core_node_new(CAsyncCore *core)
 	core->index++;
 	if (core->index >= 0x7fff) core->index = 1;
 
-	CAsyncSock *sock = (CAsyncSock*)IMNODE_DATA(core->nodes, index);
+	sock = (CAsyncSock*)IMNODE_DATA(core->nodes, index);
 	if (sock == NULL) {
 		assert(sock);
 		abort();
