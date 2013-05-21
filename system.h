@@ -24,6 +24,9 @@
 // RingBuffer        环缓存：环状 FIFO缓存
 // CryptRC4          RC4加密
 //
+// AsyncSock         非阻塞 TCP套接字
+// AsyncCore         异步框架
+//
 // CsvReader         CSV文件读取
 // CsvWriter         CSV文件写入
 // HttpRequest       反照 Python的 urllib，非阻塞和阻塞模式
@@ -286,6 +289,7 @@ public:
 			SYSTEM_THROW("create Thread failed", 10003);
 	}
 
+	// 注意：析构前线程必须退出，比如join过的。
 	virtual ~Thread() {
 		if (is_running()) {
 			char text[128];
@@ -770,6 +774,245 @@ protected:
 	int y;
 };
 
+
+
+//---------------------------------------------------------------------
+// 非阻塞套接字
+//---------------------------------------------------------------------
+class AsyncSock
+{
+public:
+	AsyncSock() {
+		_lock = new CriticalSection;
+		_sock = new CAsyncSock;
+		async_sock_init(_sock, NULL);
+	}
+
+	virtual ~AsyncSock() { 
+		if (_lock) _lock->enter();
+		if (_sock) {
+			async_sock_destroy(_sock);
+			delete _sock;
+			_sock = NULL;
+		}
+		if (_lock) _lock->leave();
+		if (_lock) delete _lock;
+		_lock = NULL;
+	}
+
+	int connect(const char *ip, int port, int header = 0) {
+		CriticalScope scope(*_lock);
+		SockAddress remote(ip, port);
+		return async_sock_connect(_sock, remote.address(), 0, header);
+	}
+
+	int assign(int fd, int header = 0) {
+		CriticalScope scope(*_lock);
+		return async_sock_assign(_sock, fd, header);
+	}
+
+	void close() {
+		CriticalScope scope(*_lock);
+		async_sock_close(_sock);
+	}
+
+	int state() const {
+		return _sock->state;
+	}
+
+	int fd() const {
+		return _sock->fd;
+	}
+
+	long remain() const {
+		CriticalScope scope(*_lock);
+		return async_sock_remain(_sock);
+	}
+
+	long send(const void *ptr, long size, int mask = 0) {
+		CriticalScope scope(*_lock);
+		return async_sock_send(_sock, ptr, size, mask);
+	}
+
+	long recv(void *ptr, long maxsize) {
+		CriticalScope scope(*_lock);
+		return async_sock_recv(_sock, ptr, maxsize);
+	}
+
+	long send(const void *vecptr[], long veclen[], int count, int mask = 0) {
+		CriticalScope scope(*_lock);
+		return async_sock_send_vector(_sock, vecptr, veclen, count, mask);
+	}
+
+	long recv(void *vecptr[], long veclen[], int count) {
+		CriticalScope scope(*_lock);
+		return async_sock_recv_vector(_sock, vecptr, veclen, count);
+	}
+
+	void process() {
+		CriticalScope scope(*_lock);
+		async_sock_process(_sock);
+	}
+
+	int nodelay(bool enable) {
+		CriticalScope scope(*_lock);
+		return async_sock_nodelay(_sock, enable? 1 : 0);
+	}
+
+	int set_sys_buffer(long limited, long maxpktsize) {
+		CriticalScope scope(*_lock);
+		return async_sock_sys_buffer(_sock, limited, maxpktsize);
+	}
+
+	int keepalive(int keepcnt, int keepidle, int intvl) {
+		CriticalScope scope(*_lock);
+		return async_sock_keepalive(_sock, keepcnt, keepidle, intvl);
+	}
+
+	void rc4_set_skey(const unsigned char *key, int len) {
+		CriticalScope scope(*_lock);
+		async_sock_rc4_set_skey(_sock, key, len);
+	}
+
+	void rc4_set_rkey(const unsigned char *key, int len) {
+		CriticalScope scope(*_lock);
+		async_sock_rc4_set_rkey(_sock, key, len);
+	}
+
+protected:
+	mutable CriticalSection *_lock;
+	CAsyncSock *_sock;
+};
+
+
+//---------------------------------------------------------------------
+// 异步网络管理
+//---------------------------------------------------------------------
+class AsyncCore
+{
+public:
+	AsyncCore() {
+		_lock = new CriticalSection;
+		_core = async_core_new();
+	}
+
+	virtual ~AsyncCore() {
+		if (_lock) _lock->enter();
+		if (_core) {
+			async_core_delete(_core);
+			_core = NULL;
+		}
+		if (_lock) _lock->leave();
+		if (_lock) delete _lock;
+		_lock = NULL;
+	}
+
+	void wait(IUINT32 millisec) {
+		CriticalScope scope(*_lock);
+		async_core_process(_core, millisec);
+	}
+
+	long read(int *event, long *wparam, long *lparam, void *data, long maxsize) {
+		CriticalScope scope(*_lock);
+		return async_core_read(_core, event, wparam, lparam, data, maxsize);
+	}
+
+	long send(long hid, const void *data, long size) {
+		CriticalScope scope(*_lock);
+		return async_core_send(_core, hid, data, size);
+	}
+
+	int close(long hid, int code) {
+		CriticalScope scope(*_lock);
+		return async_core_close(_core, hid, code);
+	}
+
+	long send(long hid, const void *vecptr[], long veclen[], int count, int mask = 0) {
+		CriticalScope scope(*_lock);
+		return async_core_send_vector(_core, hid, vecptr, veclen, count, mask);
+	}
+
+	long new_connect(const char *ip, int port, int header = 0) {
+		CriticalScope scope(*_lock);
+		SockAddress remote(ip, port);
+		return async_core_new_connect(_core, remote.address(), 0, header);
+	}
+
+	long new_listen(const char *ip, int port, int header = 0) {
+		CriticalScope scope(*_lock);
+		SockAddress remote(ip, port);
+		return async_core_new_listen(_core, remote.address(), 0, header);
+	}
+
+	long get_mode(long hid) const {
+		CriticalScope scope(*_lock);
+		return async_core_get_mode(_core, hid);
+	}
+
+	long get_tag(long hid) const {
+		CriticalScope scope(*_lock);
+		return async_core_get_tag(_core, hid);
+	}
+
+	void set_tag(long hid, long tag) {
+		CriticalScope scope(*_lock);
+		async_core_set_tag(_core, hid, tag);
+	}
+
+	long remain(long hid) const {
+		CriticalScope scope(*_lock);
+		return async_core_remain(_core, hid);
+	}
+
+	void set_limit(long buffer_limit, long max_pkt_size) {
+		CriticalScope scope(*_lock);
+		async_core_limit(_core, buffer_limit, max_pkt_size);
+	}
+
+	long node_head() const {
+		CriticalScope scope(*_lock);
+		return async_core_node_head(_core);
+	}
+
+	long node_next(long hid) const {
+		CriticalScope scope(*_lock);
+		return async_core_node_next(_core, hid);
+	}
+
+	long node_prev(long hid) const {
+		CriticalScope scope(*_lock);
+		return async_core_node_prev(_core, hid);
+	}
+
+	int option(long hid, int opt, long value) {
+		CriticalScope scope(*_lock);
+		return async_core_option(_core, hid, opt, value);
+	}
+
+	void set_timeout(long seconds) {
+		CriticalScope scope(*_lock);
+		async_core_timeout(_core, seconds);
+	}
+
+	void set_firewall(CAsyncValidator validator, void *user) {
+		CriticalScope scope(*_lock);
+		async_core_firewall(_core, validator, user);
+	}
+
+	void rc4_set_skey(long hid, const unsigned char *key, int len) {
+		CriticalScope scope(*_lock);
+		async_core_rc4_set_skey(_core, hid, key, len);
+	}
+
+	void rc4_set_rkey(long hid, const unsigned char *key, int len) {
+		CriticalScope scope(*_lock);
+		async_core_rc4_set_rkey(_core, hid, key, len);
+	}
+
+protected:
+	mutable CriticalSection *_lock;
+	CAsyncCore *_core;
+};
 
 
 //---------------------------------------------------------------------
