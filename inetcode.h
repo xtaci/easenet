@@ -288,6 +288,9 @@ int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 // set remote ip validator
 void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 
+// set timeout
+void async_core_timeout(CAsyncCore *core, long seconds);
+
 
 //=====================================================================
 // System Utilities
