@@ -35,10 +35,6 @@
 #endif
 #endif
 
-#include <time.h>
-#ifdef __unix
-#include <sys/time.h>
-#endif
 #include <assert.h>
 
 
@@ -1190,7 +1186,7 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	struct sockaddr_in remote4;
 	struct sockaddr_in6 remote6;
 	struct sockaddr *remote;
-	long hid;
+	long hid, limited, maxsize;
 	int fd = -1;
 	int addrlen = 0;
 	int head = 0;
@@ -1233,6 +1229,9 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	}
 
 	head = sock->header;
+	limited = sock->limited;
+	maxsize = sock->maxsize;
+
 	sock = async_core_node_get(core, hid);
 	sock->mode = ASYNC_CORE_NODE_IN;
 	sock->ipv6 = (addrlen == sizeof(remote4))? 0 : 1;
@@ -1243,6 +1242,9 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	}
 
 	async_sock_assign(sock, fd, head);
+
+	sock->limited = limited;
+	sock->maxsize = maxsize;
 	
 	hr = ipoll_add(core->pfd, fd, IPOLL_IN | IPOLL_ERR, sock);
 	if (hr != 0) {
@@ -1397,11 +1399,14 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 {
 	int fd, event, x, count, code = 2010;
 	void *udata;
+	IUINT64 ts;
 	IUINT32 now;
 
 	count = ipoll_wait(core->pfd, millisec);
-	core->current = iclock();
-	now = (IUINT32)time(NULL);
+
+	ts = iclock64();
+	core->current = (IUINT32)(ts & 0xfffffffful);
+	now = (IUINT32)((ts / 1000) & 0xfffffffful);
 
 	for (x = count * 2; x > 0; x--) {
 		CAsyncSock *sock;
@@ -1687,6 +1692,11 @@ void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user)
 	core->user = user;
 }
 
+// set timeout
+void async_core_timeout(CAsyncCore *core, long seconds)
+{
+	core->timeout = seconds * 1000;
+}
 
 //---------------------------------------------------------------------
 // System Utilities
