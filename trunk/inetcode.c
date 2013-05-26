@@ -682,11 +682,11 @@ long async_sock_recv_vector(CAsyncSock *asyncsock, void *vecptr[],
 
 	len = async_sock_read_size(asyncsock);
 	if (len <= 0) return -1;
-	if (len < hdrlen) return -3;
-	if (len > asyncsock->maxsize) return -4;
+	if ((long)len < hdrlen) return -3;
+	if ((long)len > asyncsock->maxsize) return -4;
 	if (asyncsock->recvmsg.size < (ilong)len) return -1;
 	if (vecptr == NULL) return len - hdrlen;
-	if (len > size + hdrlen) return -2;
+	if ((long)len > size + hdrlen) return -2;
 
 	ims_drop(&asyncsock->recvmsg, hdrlen);
 
@@ -1509,7 +1509,7 @@ long async_core_send_vector(CAsyncCore *core, long hid, const void *vecptr[],
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	long hr;
 	if (sock == NULL) return -100;
-	if (sock->limited > 0 && sock->sendmsg.size > sock->limited) {
+	if (sock->limited > 0 && sock->sendmsg.size > (iulong)sock->limited) {
 		async_core_event_close(core, sock, 2005);
 		return -200;
 	}
@@ -1554,7 +1554,7 @@ int async_core_close(CAsyncCore *core, long hid, int code)
 //---------------------------------------------------------------------
 void async_core_process(CAsyncCore *core, IUINT32 millisec)
 {
-	return async_core_process_events(core, millisec);
+	async_core_process_events(core, millisec);
 }
 
 
