@@ -3040,7 +3040,6 @@ static int iposix_cond_posix_sleep_cs(iConditionVariablePosix *cond,
 static int iposix_cond_posix_sleep_cs_time(iConditionVariablePosix *cond, 
 	IMUTEX_TYPE *mutex, unsigned long millisec)
 {
-	const unsigned long INFINITE = 0xFFFFFFFF;
 	const int NANOSECONDS_PER_SECOND       = 1000000000;
 	const int NANOSECONDS_PER_MILLISECOND  = 1000000;
 	const int MILLISECONDS_PER_SECOND      = 1000;
@@ -3050,7 +3049,7 @@ static int iposix_cond_posix_sleep_cs_time(iConditionVariablePosix *cond,
 	#endif
 #endif
 
-	if (millisec != INFINITE) {
+	if (millisec != IEVENT_INFINITE) {
 		struct timespec ts;
 		int res;
 	#if (!defined(__imac__)) && (!defined(ITIME_USE_GET_TIME_OF_DAY))
@@ -3181,7 +3180,6 @@ void iposix_cond_wake_all(iConditionVariable *cond)
 /*===================================================================*/
 /* Event Cross-Platform Interface                                    */
 /*===================================================================*/
-
 struct iEventPosix
 {
 	iConditionVariable *cond;
@@ -3243,14 +3241,14 @@ int iposix_event_wait(iEventPosix *event, unsigned long millisec)
 	int result = 0;
 	assert(event && event->cond);
 	IMUTEX_LOCK(&event->mutex);
-	if (event->signal == 0) {
+	if (event->signal == 0 && millisec > 0) {
 		if (millisec != IEVENT_INFINITE) {
 			while (event->signal == 0) {
-				IUINT32 clock = iclock();
-				IUINT32 last;
+				IUINT32 ts = iclock();
+				IUINT32 last = millisec > 10000? 10000 : (IUINT32)millisec;
 				iposix_cond_sleep_cs_time(event->cond, 
-					&event->mutex, millisec);
-				last = (iclock() - clock);
+					&event->mutex, last);
+				last = (iclock() - ts);
 				if (millisec <= (unsigned long)last) {
 					break;
 				}	else {
@@ -3555,7 +3553,6 @@ void iposix_rwlock_r_unlock(iRwLockPosix *rwlock)
 	iposix_rwlock_r_unlock_generic(rwlock->rwlock);
 #endif
 }
-
 
 
 /*===================================================================*/
@@ -4535,6 +4532,170 @@ int iposix_timer_reset(iPosixTimer *timer)
 	timer->signal = 0;
 	IMUTEX_UNLOCK(&timer->lock);
 	return 0;
+}
+
+
+/*===================================================================*/
+/* Semaphore Cross-Platform Interface                                */
+/*===================================================================*/
+struct iPosixSemaphore
+{
+	iulong value;
+	iulong maximum;
+	IMUTEX_TYPE lock;
+	iConditionVariable *cond_not_full;
+	iConditionVariable *cond_not_empty;
+};
+
+
+/* create a semaphore with a maximum count, and initial count is 0. */
+iPosixSemaphore* iposix_sem_new(iulong maximum)
+{
+	iPosixSemaphore *sem = (iPosixSemaphore*)
+		ikmalloc(sizeof(iPosixSemaphore));
+	if (sem == NULL) return NULL;
+
+	sem->value = 0;
+	sem->maximum = maximum;
+
+	sem->cond_not_full = iposix_cond_new();
+	if (sem->cond_not_full == NULL) {
+		ikfree(sem);
+		return NULL;
+	}
+
+	sem->cond_not_empty = iposix_cond_new();
+	if (sem->cond_not_empty == NULL) {
+		iposix_cond_delete(sem->cond_not_full);
+		ikfree(sem);
+		return NULL;
+	}
+
+	IMUTEX_INIT(&sem->lock);
+
+	return sem;
+}
+
+
+/* delete a semaphore */
+void iposix_sem_delete(iPosixSemaphore *sem)
+{
+	if (sem) {
+		if (sem->cond_not_full) {
+			iposix_cond_delete(sem->cond_not_full);
+			sem->cond_not_full = NULL;
+		}
+		if (sem->cond_not_empty) {
+			iposix_cond_delete(sem->cond_not_empty);
+			sem->cond_not_empty = NULL;
+		}
+		IMUTEX_DESTROY(&sem->lock);
+		sem->value = 0;
+		sem->maximum = 0;
+		ikfree(sem);
+	}
+}
+
+
+/* increase count of the semaphore, returns how much it increased */
+iulong iposix_sem_post(iPosixSemaphore *sem, iulong count, 
+	unsigned long millisec, iPosixSemHook hook, void *arg)
+{
+	iulong increased = 0;
+	iulong caninc = 0;
+
+	if (count == 0) return 0;
+
+	IMUTEX_LOCK(&sem->lock);
+
+	if (sem->value == sem->maximum && millisec != 0) {
+		if (millisec != IEVENT_INFINITE) {
+			while (sem->value == sem->maximum) {
+				IUINT32 ts = iclock();
+				IUINT32 last = millisec > 10000? 10000 : (IUINT32)millisec;
+				iposix_cond_sleep_cs_time(sem->cond_not_full, 
+					&sem->lock, last);
+				last = (iclock() - ts);
+				if (millisec <= (unsigned long)last) {
+					break;
+				}	else {
+					millisec -= (unsigned long)last;
+				}
+			}
+		}	else {
+			while (sem->value == sem->maximum) {
+				iposix_cond_sleep_cs(sem->cond_not_full, &sem->lock);
+			}
+		}
+	}
+	
+	caninc = sem->maximum - sem->value;
+
+	if (caninc > 0) {
+		increased = (count < caninc)? count : caninc;
+		sem->value += increased;
+		if (hook) hook(increased, arg);
+		iposix_cond_wake_all(sem->cond_not_empty);
+	}
+
+	IMUTEX_UNLOCK(&sem->lock);
+
+	return increased;
+}
+
+
+/* decrease count of the semaphore, returns how much it decreased */
+iulong iposix_sem_wait(iPosixSemaphore *sem, iulong count,
+	unsigned long millisec, iPosixSemHook hook, void *arg)
+{
+	iulong decreased = 0;
+
+	if (count == 0) return 0;
+
+	IMUTEX_LOCK(&sem->lock);
+
+	if (sem->value == 0 && millisec != 0) {
+		if (millisec != IEVENT_INFINITE) {
+			while (sem->value == 0) {
+				IUINT32 ts = iclock();
+				IUINT32 last = millisec > 10000? 10000 : (IUINT32)millisec;
+				iposix_cond_sleep_cs_time(sem->cond_not_empty, 
+					&sem->lock, last);
+				last = iclock() - ts;
+				if (millisec <= (unsigned long)last) {
+					break;
+				}	else {
+					millisec -= (unsigned long)last;
+				}
+			}
+		}	else {
+			while (sem->value == 0) {
+				iposix_cond_sleep_cs(sem->cond_not_empty, &sem->lock);
+			}
+		}
+	}
+
+	if (sem->value > 0) {
+		decreased = (count < sem->value)? count : sem->value;
+		sem->value -= decreased;
+		if (hook) hook(decreased, arg);
+		iposix_cond_wake_all(sem->cond_not_full);
+	}
+
+	IMUTEX_UNLOCK(&sem->lock);
+
+	return decreased;
+}
+
+
+/* get the count value of the specified semaphore */
+iulong iposix_sem_value(iPosixSemaphore *sem)
+{
+	iulong x;
+	IMUTEX_LOCK(&sem->lock);
+	x = sem->value;
+	IMUTEX_UNLOCK(&sem->lock);
+	return x;
 }
 
 

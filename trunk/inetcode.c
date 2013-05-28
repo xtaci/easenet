@@ -619,7 +619,8 @@ async_sock_write_size(const CAsyncSock *asyncsock, long size,
 }
 
 // send vector
-long async_sock_send_vector(CAsyncSock *asyncsock, const void *vecptr[],
+long async_sock_send_vector(CAsyncSock *asyncsock, 
+	const void * const vecptr[],
 	const long veclen[], int count, int mask)
 {
 	unsigned char head[4];
@@ -667,7 +668,7 @@ long async_sock_send_vector(CAsyncSock *asyncsock, const void *vecptr[],
 // recv vector: returns packet size, -1 for not enough data, -2 for 
 // buffer size too small, -3 for packet size error, -4 for size over limit,
 // returns packet size if vecptr equals NULL.
-long async_sock_recv_vector(CAsyncSock *asyncsock, void *vecptr[], 
+long async_sock_recv_vector(CAsyncSock *asyncsock, void* const vecptr[], 
 	const long veclen[], int count)
 {
 	long hdrlen, remain, size = 0;
@@ -721,7 +722,7 @@ long async_sock_send(CAsyncSock *asyncsock, const void *ptr, long size,
 // returns packet size if ptr equals NULL.
 long async_sock_recv(CAsyncSock *asyncsock, void *ptr, int size)
 {
-	void *vecptr[1];
+	void*vecptr[1];
 	long veclen[1];
 
 	if (ptr == NULL) {
@@ -1503,7 +1504,8 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 //---------------------------------------------------------------------
 // send vector
 //---------------------------------------------------------------------
-long async_core_send_vector(CAsyncCore *core, long hid, const void *vecptr[],
+long async_core_send_vector(CAsyncCore *core, long hid,
+	const void * const vecptr[],
 	const long veclen[], int count, int mask)
 {
 	CAsyncSock *sock = async_core_node_get(core, hid);
@@ -1697,6 +1699,135 @@ void async_core_timeout(CAsyncCore *core, long seconds)
 {
 	core->timeout = seconds * 1000;
 }
+
+
+
+//=====================================================================
+// Thread Safe Queue
+//=====================================================================
+struct iQueueSafe
+{
+	iPosixSemaphore *sem;
+	struct IMSTREAM stream;
+	int stop;
+	IMUTEX_TYPE lock;
+};
+
+
+// new queue
+iQueueSafe *queue_safe_new(iulong maxsize)
+{
+	iQueueSafe *q = (iQueueSafe*)ikmem_malloc(sizeof(iQueueSafe));
+	if (q == NULL) return NULL;
+	if (maxsize == 0) maxsize = ~maxsize;
+	q->sem = iposix_sem_new(maxsize);
+	if (q->sem == NULL) {
+		ikmem_free(q);
+		return NULL;
+	}
+	q->stop = 0;
+	ims_init(&q->stream, NULL, 4096, 4096);
+	IMUTEX_INIT(&q->lock);
+	return q;
+}
+
+// delete queue
+void queue_safe_delete(iQueueSafe *q) 
+{
+	if (q) {
+		if (q->sem) iposix_sem_delete(q->sem);
+		q->sem = NULL;
+		q->stop = 1;
+		ims_destroy(&q->stream);
+		IMUTEX_DESTROY(&q->lock);
+		ikmem_free(q);
+	}
+}
+
+// callback args
+struct iQueueSafeArg
+{
+	iQueueSafe *q;
+	const void *in;
+	void *out;
+};
+
+// put hook
+void queue_safe_hook_put(iulong count, void *p)
+{
+	struct iQueueSafeArg *args = (struct iQueueSafeArg*)p;
+	ilong need = (ilong)(sizeof(void*) * count);
+	ilong hr;
+	hr = ims_write(&args->q->stream, args->in, need);
+	if (hr != need) {
+		assert(hr == need);
+	}
+}
+
+// get hook
+void queue_safe_hook_get(iulong count, void *p)
+{
+	struct iQueueSafeArg *args = (struct iQueueSafeArg*)p;
+	ilong need = (ilong)(sizeof(void*) * count);
+	ilong hr;
+	hr = ims_read(&args->q->stream, args->out, need);
+	if (hr != need) {
+		assert(hr == need);
+	}
+}
+
+// put many objs into queue, returns how many obj have entered the queue 
+int queue_safe_put_vec(iQueueSafe *q, const void * const vecptr[], 
+	int count, unsigned long millisec)
+{
+	struct iQueueSafeArg args;
+	int hr;
+	if (q->stop || count <= 0) return 0;
+	args.q = q;
+	args.in = (const void*)vecptr;
+	hr = (int)iposix_sem_post(q->sem, count, millisec, 
+				queue_safe_hook_put, &args);
+	return hr;
+}
+
+// get objs from queue, returns how many obj have been fetched
+int queue_safe_get_vec(iQueueSafe *q, void *vecptr[], int count,
+	unsigned long millisec)
+{
+	struct iQueueSafeArg args;
+	int hr;
+	if (q->stop || count <= 0) return 0;
+	args.q = q;
+	args.out = (void*)vecptr;
+	hr = (int)iposix_sem_wait(q->sem, count, millisec, 
+				queue_safe_hook_get, &args);
+	return hr;
+}
+
+// put obj into queue, returns 1 for success, 0 for full
+int queue_safe_put(iQueueSafe *q, void *ptr, unsigned long millisec)
+{
+	const void * const vecptr[1] = { ptr };
+	return queue_safe_put_vec(q, vecptr, 1, millisec);
+}
+
+// get obj from queue, returns 1 for success, 0 for empty
+int queue_safe_get(iQueueSafe *q, void **ptr, unsigned long millisec)
+{
+	void *vecptr[1];
+	int hr;
+	hr = queue_safe_get_vec(q, vecptr, 1, millisec);
+	if (ptr) ptr[0] = vecptr[0];
+	return hr;
+}
+
+// get size
+iulong queue_safe_size(iQueueSafe *q)
+{
+	return iposix_sem_value(q->sem);
+}
+
+
 
 //---------------------------------------------------------------------
 // System Utilities
