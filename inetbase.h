@@ -892,6 +892,34 @@ int iposix_timer_reset(iPosixTimer *timer);
 
 
 /*===================================================================*/
+/* Semaphore Cross-Platform Interface                                */
+/*===================================================================*/
+struct iPosixSemaphore;
+typedef struct iPosixSemaphore iPosixSemaphore;
+
+/* semaphore callback when value changed */
+typedef void (*iPosixSemHook)(iulong changed, void *arg);
+
+/* create a semaphore with a maximum count, and initial count is 0. */
+iPosixSemaphore* iposix_sem_new(iulong maximum);
+
+/* delete a semaphore */
+void iposix_sem_delete(iPosixSemaphore *sem);
+
+/* increase count of the semaphore, returns how much it increased */
+iulong iposix_sem_post(iPosixSemaphore *sem, iulong count, 
+	unsigned long millisec, iPosixSemHook hook, void *arg);
+
+/* decrease count of the semaphore, returns how much it decreased */
+iulong iposix_sem_wait(iPosixSemaphore *sem, iulong count,
+	unsigned long millisec, iPosixSemHook hook, void *arg);
+
+/* get the count value of the specified semaphore */
+iulong iposix_sem_value(iPosixSemaphore *sem);
+
+
+
+/*===================================================================*/
 /* DateTime Cross-Platform Interface                                 */
 /*===================================================================*/
 

@@ -144,13 +144,14 @@ long async_sock_recv(CAsyncSock *asyncsock, void *ptr, int size);
 
 
 // send vector
-long async_sock_send_vector(CAsyncSock *asyncsock, const void *vecptr[],
+long async_sock_send_vector(CAsyncSock *asyncsock, 
+	const void * const vecptr[],
 	const long veclen[], int count, int mask);
 
 // recv vector: returns packet size, -1 for not enough data, -2 for 
 // buffer size too small, -3 for packet size error, -4 for size over limit,
 // returns packet size if vecptr equals NULL.
-long async_sock_recv_vector(CAsyncSock *asyncsock, void *vecptr[], 
+long async_sock_recv_vector(CAsyncSock *asyncsock, void* const vecptr[], 
 	const long veclen[], int count);
 
 
@@ -225,7 +226,8 @@ long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len);
 int async_core_close(CAsyncCore *core, long hid, int code);
 
 // send vector
-long async_core_send_vector(CAsyncCore *core, long hid, const void *vecptr[],
+long async_core_send_vector(CAsyncCore *core, long hid, 
+	const void * const vecptr[],
 	const long veclen[], int count, int mask);
 
 
@@ -290,6 +292,37 @@ void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 
 // set timeout
 void async_core_timeout(CAsyncCore *core, long seconds);
+
+
+
+//=====================================================================
+// Thread Safe Queue
+//=====================================================================
+struct iQueueSafe;
+typedef struct iQueueSafe iQueueSafe;
+
+// new queue
+iQueueSafe *queue_safe_new(iulong maxsize);
+
+// delete queue
+void queue_safe_delete(iQueueSafe *q);
+
+// put obj into queue, returns 1 for success, 0 for full
+int queue_safe_put(iQueueSafe *q, void *ptr, unsigned long millisec);
+
+// get obj from queue, returns 1 for success, 0 for empty
+int queue_safe_get(iQueueSafe *q, void **ptr, unsigned long millisec);
+
+// put many objs into queue, returns how many obj have entered the queue 
+int queue_safe_put_vec(iQueueSafe *q, const void * const vecptr[], 
+	int count, unsigned long millisec);
+
+// get objs from queue, returns how many obj have been fetched
+int queue_safe_get_vec(iQueueSafe *q, void *vecptr[], int count,
+	unsigned long millisec);
+
+// get size
+iulong queue_safe_size(iQueueSafe *q);
 
 
 //=====================================================================

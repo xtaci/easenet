@@ -15,6 +15,7 @@
 // Thread            线程控制对象
 // Clock             用于读取的时钟
 // Timer             用于等待唤醒的时钟
+// Semaphore         信号量
 //
 // KernelPoll        异步事件：精简的 libevent
 // SockAddress       套接字地址：IPV4地址管理
@@ -26,6 +27,8 @@
 //
 // AsyncSock         非阻塞 TCP套接字
 // AsyncCore         异步框架
+//
+// Queue             线程安全的队列
 //
 // CsvReader         CSV文件读取
 // CsvWriter         CSV文件写入
@@ -289,7 +292,6 @@ public:
 			SYSTEM_THROW("create Thread failed", 10003);
 	}
 
-	// 注意：析构前线程必须退出，比如join过的。
 	virtual ~Thread() {
 		if (is_running()) {
 			char text[128];
@@ -464,6 +466,48 @@ public:
 
 protected:
 	iPosixTimer *_timer;
+};
+
+
+//---------------------------------------------------------------------
+// 信号量
+//---------------------------------------------------------------------
+class Semaphore
+{
+public:
+	Semaphore(unsigned long maximum = 0xfffffffful) {
+		_sem = iposix_sem_new((iulong)maximum);
+		if (_sem == NULL) 
+			SYSTEM_THROW("create Semaphore failed", 10003);
+	}
+
+	virtual ~Semaphore() {
+		if (_sem) iposix_sem_delete(_sem);
+		_sem = NULL;
+	}
+
+	iulong post(iulong count, unsigned long millisec = IEVENT_INFINITE) {
+		return iposix_sem_post(_sem, count, millisec, NULL, NULL);
+	}
+
+	iulong wait(iulong count, unsigned long millisec = IEVENT_INFINITE) {
+		return iposix_sem_wait(_sem, count, millisec, NULL, NULL);
+	}
+
+	iulong post(iulong count, unsigned long millisec, iPosixSemHook hook, void *arg) {
+		return iposix_sem_post(_sem, count, millisec, hook, arg);
+	}
+
+	iulong wait(iulong count, unsigned long millisec, iPosixSemHook hook, void *arg) {
+		return iposix_sem_wait(_sem, count, millisec, hook, arg);
+	}
+
+	iulong value() {
+		return iposix_sem_value(_sem);
+	}
+
+protected:
+	iPosixSemaphore *_sem;
 };
 
 
@@ -1012,6 +1056,50 @@ public:
 protected:
 	mutable CriticalSection *_lock;
 	CAsyncCore *_core;
+};
+
+
+//---------------------------------------------------------------------
+// 多线程安全队列
+//---------------------------------------------------------------------
+class Queue
+{
+public:
+	Queue(iulong maxsize = 0) {
+		_queue = queue_safe_new(maxsize);
+		if (_queue == NULL) 
+			SYSTEM_THROW("can not create Queue", 10005);
+	}
+
+	virtual ~Queue() {
+		if (_queue) {
+			queue_safe_delete(_queue);
+			_queue = NULL;
+		}
+	}
+
+	iulong size() const {
+		return queue_safe_size(_queue);
+	}
+
+	int put(void *obj, unsigned long millisec = IEVENT_INFINITE) {
+		return queue_safe_put(_queue, obj, millisec);
+	}
+
+	int get(void **obj, unsigned long millisec = IEVENT_INFINITE) {
+		return queue_safe_get(_queue, obj, millisec);
+	}
+
+	int put_many(const void * const vecptr[], int count, unsigned long ms) {
+		return queue_safe_put_vec(_queue, vecptr, count, ms);
+	}
+
+	int get_many(void *vecptr[], int count, unsigned long ms) {
+		return queue_safe_get_vec(_queue, vecptr, count, ms);
+	}
+
+protected:
+	mutable iQueueSafe *_queue;
 };
 
 
