@@ -296,7 +296,15 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 
 	if (iconnect(asyncsock->fd, remote, addrlen) != 0) {
 		int hr = ierrno();
-		if (hr != IEAGAIN) {
+		int failed = 1;
+		if (hr == IEAGAIN) failed = 0;
+	#ifdef EINPROGRESS
+		else if (hr == EINPROGRESS) failed = 0;
+	#endif
+	#ifdef WSAEINPROGRESS
+		else if (hr == WSAEINPROGRESS) failed = 0;
+	#endif
+		if (failed) {
 			iclose(asyncsock->fd);
 			asyncsock->fd = -1;
 			asyncsock->error = hr;
