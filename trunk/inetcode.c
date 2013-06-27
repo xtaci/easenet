@@ -1429,10 +1429,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			assert(sock && fd == sock->fd);
 			abort();
 		}
-		switch (event)
-		{
-		case IPOLL_ERR:
-		case IPOLL_IN:
+		if ((event & IPOLL_IN) || (event & IPOLL_ERR)) {
 			if (sock->mode == ASYNC_CORE_NODE_LISTEN4 ||
 				sock->mode == ASYNC_CORE_NODE_LISTEN6) {
 				async_core_accept(core, sock->hid);
@@ -1440,10 +1437,11 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 				if (async_sock_update(sock, 1) != 0) {
 					needclose = 1;
 					code = 2000;
-					break;
 				}
-				async_core_node_active(core, sock->hid);
-				while (1) {
+				if (needclose == 0) {
+					async_core_node_active(core, sock->hid);
+				}
+				while (needclose == 0) {
 					long size = async_sock_recv(sock, NULL, 0);
 					if (size < 0) {	// not enough data or packet size error
 						if (size == -3 || size == -4) {	// size error
@@ -1465,30 +1463,28 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 						sock->hid, sock->tag, core->buffer, size);
 				}
 			}
-			break;
-		case IPOLL_OUT:
+		}
+		if (event & IPOLL_OUT) {
 			if (sock->mode == ASYNC_CORE_NODE_OUT) {
 				if (sock->state == ASYNC_SOCK_STATE_CONNECTING) {
 					sock->state = ASYNC_SOCK_STATE_ESTAB;
 					async_core_msg_push(core, ASYNC_CORE_EVT_ESTAB, 
 						sock->hid, sock->tag, "", 0);
-					async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR,
-						IPOLL_OUT);
+					async_core_node_mask(core, sock, 
+						IPOLL_IN | IPOLL_ERR, 0);
 				}
 			}
 			if (sock->sendmsg.size > 0) {
 				if (async_sock_update(sock, 2) != 0) {
 					needclose = 1;
 					code = 2003;
-					break;
 				}
 			}
-			if (sock->sendmsg.size == 0 && sock->fd >= 0) {
+			if (sock->sendmsg.size == 0 && sock->fd >= 0 && !needclose) {
 				if (sock->mask & IPOLL_OUT) {
 					async_core_node_mask(core, sock, 0, IPOLL_OUT);
 				}
 			}
-			break;
 		}
 		if (sock->state == ASYNC_SOCK_STATE_CLOSED || needclose) {
 			async_core_event_close(core, sock, code);
