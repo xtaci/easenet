@@ -1066,14 +1066,12 @@ int ihttplib_request(IHTTPLIB *http, int method, const char *URL,
 // returns IHTTP_RECV_CLOSED for closed
 int ihttplib_getresponse(IHTTPLIB *http, ivalue_t *content, int waitms)
 {
-	unsigned long before;
 	long received;
 	int retval = 0;
 	char *ptr;
 	it_sresize(&http->buffer, 4096);
 	ptr = it_str(&http->buffer);
 	for (received = 0; ; ) {
-		before = (unsigned long)http->sock->received;
 		retval = ihttplib_recv(http, ptr, it_size(&http->buffer));
 		//printf("ihttplib_recv: %d\n", retval);
 		if (retval >= 0) {
@@ -1572,7 +1570,6 @@ int _urllib_wget(const char *URL, ivalue_t *ctx, const char *proxy, int time)
 	IINT64 ts;
 	IINT64 to;
 	long size;
-	int done;
 	int hr;
 	int redirect;
 	ivalue_t location;
@@ -1598,7 +1595,7 @@ redirected:
 		return -2000;
 	}
 
-	for (size = 0, done = 0; ; ) {
+	for (size = 0; ; ) {
 		long retval;
 		retval = ineturl_read(url, buffer, 8192, 20);
 		if (retval > 0) {

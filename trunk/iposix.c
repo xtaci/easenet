@@ -227,7 +227,7 @@ static void iposix_path_stat(const char *src, char *dst)
 	if (size > 1) {
 		int trim = 1;
 		if (size == 3) {
-			if (isalpha(dst[0]) && dst[1] == ':' && 
+			if (isalpha((int)dst[0]) && dst[1] == ':' && 
 				(dst[2] == '/' || dst[2] == '\\')) trim = 0;
 		}
 		if (size == 1) {
@@ -532,7 +532,7 @@ char *iposix_path_normal(const char *srcpath, char *path, int maxsize)
 		return path;
 	}
 
-	for (p1 = (char*)srcpath; p1[0] && isspace(p1[0]); p1++);
+	for (p1 = (char*)srcpath; p1[0] && isspace((int)p1[0]); p1++);
 
 	path[0] = 0;
 	_istrset(&s1, path, maxsize);
@@ -604,8 +604,8 @@ char *iposix_path_join(const char *p1, const char *p2, char *path, int len)
 
 	assert(p1 && p2 && maxsize > 0);
 
-	for (; p1[0] && isspace(p1[0]); p1++);
-	for (; p2[0] && isspace(p2[0]); p2++);
+	for (; p1[0] && isspace((int)p1[0]); p1++);
+	for (; p2[0] && isspace((int)p2[0]); p2++);
 	r = 0;
 	p = (char*)p2;
 	if (IPATHSEP == '/') {

@@ -99,6 +99,7 @@ int inet_updateaddr(int resolvname)
 		if (resolvname) {
 			struct hostent *ent;
 			ent = gethostbyaddr((const char*)&ihost_addr[i], 4, AF_INET);
+			ent = ent;
 		}
 	}
 	#endif
@@ -371,12 +372,16 @@ static int async_sock_try_connect(CAsyncSock *asyncsock)
 	int event;
 	if (asyncsock->state != ASYNC_SOCK_STATE_CONNECTING) 
 		return 0;
-	event = ISOCK_ESEND | ISOCK_ERROR;
+	event = ISOCK_ERECV | ISOCK_ESEND | ISOCK_ERROR;
 	event = ipollfd(asyncsock->fd, event, 0);
 	if (event & ISOCK_ERROR) {
 		return -1;
 	}	else
 	if (event & ISOCK_ESEND) {
+		int hr = 0, len = sizeof(int), error = 0;
+		hr = igetsockopt(asyncsock->fd, SOL_SOCKET, SO_ERROR, 
+				(char*)&error, &len);
+		if (hr < 0 || (hr == 0 && error != 0)) return -2;
 		asyncsock->state = ASYNC_SOCK_STATE_ESTAB;
 	}
 	return 0;
@@ -416,7 +421,7 @@ static int async_sock_try_recv(CAsyncSock *asyncsock)
 	unsigned char *buffer = (unsigned char*)asyncsock->buffer;
 	long bufsize = asyncsock->bufsize;
 	int retval;
-	if (asyncsock->state != ASYNC_SOCK_STATE_ESTAB) return 0;
+	if (asyncsock->state == ASYNC_SOCK_STATE_CLOSED) return 0;
 	while (1) {
 		retval = irecv(asyncsock->fd, buffer, bufsize, 0);
 		if (retval < 0) {
@@ -1302,7 +1307,7 @@ long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
 		return -3;
 	}
 
-	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_ERR, 0);
+	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_IN | IPOLL_ERR, 0);
 	sock->mode = ASYNC_CORE_NODE_OUT;
 
 	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
@@ -1423,7 +1428,6 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 		if (ipoll_event(core->pfd, &fd, &event, &udata) != 0) {
 			break;
 		}
-		//printf("[poll] event=%d fd=%d\n", event, fd);
 		sock = (CAsyncSock*)udata;
 		if (sock == NULL || fd != sock->fd) {
 			assert(sock && fd == sock->fd);
@@ -1433,10 +1437,19 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			if (sock->mode == ASYNC_CORE_NODE_LISTEN4 ||
 				sock->mode == ASYNC_CORE_NODE_LISTEN6) {
 				async_core_accept(core, sock->hid);
-			}	else {
+			}	
+			else {
 				if (async_sock_update(sock, 1) != 0) {
 					needclose = 1;
 					code = 2000;
+				}
+				if (sock->mode == ASYNC_CORE_NODE_OUT) {
+					if (sock->state == ASYNC_SOCK_STATE_CONNECTING) {
+						if ((event & IPOLL_ERR) && needclose == 0) {
+							needclose = 1;
+							code = 2001;
+						}
+					}
 				}
 				if (needclose == 0) {
 					async_core_node_active(core, sock->hid);
@@ -1446,14 +1459,14 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 					if (size < 0) {	// not enough data or packet size error
 						if (size == -3 || size == -4) {	// size error
 							needclose = 1;
-							code = 2001;
+							code = 2002;
 						}
 						break;
 					}
 					else if (size > core->bufsize) {	// buffer resize
 						if (async_core_buffer_resize(core, size) != 0) {
 							needclose = 1;
-							code = 2002;
+							code = 2003;
 							break;
 						}
 					}
@@ -1464,20 +1477,34 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 				}
 			}
 		}
-		if (event & IPOLL_OUT) {
+		if ((event & IPOLL_OUT) && needclose == 0) {
 			if (sock->mode == ASYNC_CORE_NODE_OUT) {
 				if (sock->state == ASYNC_SOCK_STATE_CONNECTING) {
-					sock->state = ASYNC_SOCK_STATE_ESTAB;
-					async_core_msg_push(core, ASYNC_CORE_EVT_ESTAB, 
-						sock->hid, sock->tag, "", 0);
-					async_core_node_mask(core, sock, 
-						IPOLL_IN | IPOLL_ERR, 0);
+					int hr = 0, done = 0;
+					int error = 0, len = sizeof(int);
+					hr = igetsockopt(sock->fd, SOL_SOCKET, SO_ERROR, 
+						(char*)&error, &len);
+					if (hr < 0 || (hr == 0 && error != 0)) {
+						done = 0;
+					}	else {
+						done = 1;
+					}
+					if (done) {
+						sock->state = ASYNC_SOCK_STATE_ESTAB;
+						async_core_msg_push(core, ASYNC_CORE_EVT_ESTAB, 
+							sock->hid, sock->tag, "", 0);
+						async_core_node_mask(core, sock, 
+							IPOLL_IN | IPOLL_ERR, 0);
+					}	else {
+						needclose = 1;
+						code = 2004;
+					}
 				}
 			}
-			if (sock->sendmsg.size > 0) {
+			if (sock->sendmsg.size > 0 && needclose == 0) {
 				if (async_sock_update(sock, 2) != 0) {
 					needclose = 1;
-					code = 2003;
+					code = 2005;
 				}
 			}
 			if (sock->sendmsg.size == 0 && sock->fd >= 0 && !needclose) {
@@ -1499,7 +1526,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			sock = iqueue_entry(core->head.next, CAsyncSock, node);
 			timeout = itimediff(core->current, sock->time + core->timeout);
 			if (timeout < 0) break;
-			async_core_event_close(core, sock, 2004);
+			async_core_event_close(core, sock, 2006);
 		}
 	}
 }
