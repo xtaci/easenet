@@ -77,6 +77,9 @@ typedef int socklen_t;
 
 #define IESOCKET		-1
 #define IEAGAIN			EAGAIN
+#define IEISCONN		EISCONN
+#define IEINPROGRESS	EINPROGRESS
+#define IEALREADY		EALREADY
 
 /*-------------------------------------------------------------------*/
 /* Windows Platform                                                  */
@@ -106,6 +109,9 @@ typedef int socklen_t;
 
 #define IESOCKET		SOCKET_ERROR
 #define IEAGAIN			WSAEWOULDBLOCK
+#define IEISCONN		WSAEISCONN
+#define IEINPROGRESS	WSAEINPROGRESS
+#define IEALREADY		WSAEALREADY
 
 #ifndef IPV6_V6ONLY
 #define IPV6_V6ONLY 27

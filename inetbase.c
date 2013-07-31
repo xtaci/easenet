@@ -84,15 +84,18 @@ int usleep(useconds_t);
 /* sleep in millisecond */
 void isleep(unsigned long millisecond)
 {
-	#ifdef __unix 	/* usleep( time * 1000 ); */
+#ifdef __unix 	/* usleep( time * 1000 ); */
+	#if 0
 	struct timespec ts;
 	ts.tv_sec = (time_t)(millisecond / 1000);
 	ts.tv_nsec = (long)((millisecond % 1000) * 1000000);
-	/*nanosleep(&ts, NULL);*/
+	nanosleep(&ts, NULL);
+	#else
 	usleep((millisecond << 10) - (millisecond << 4) - (millisecond << 3));
-	#elif defined(_WIN32)
-	Sleep(millisecond);
 	#endif
+#elif defined(_WIN32)
+	Sleep(millisecond);
+#endif
 }
 
 
