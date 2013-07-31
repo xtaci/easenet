@@ -2364,20 +2364,30 @@ int iproxy_process(struct ISOCKPROXY *proxy)
 		#endif
 			else proxy->next = ISOCKPROXY_FAILED;
 		}
-		if (proxy->next == ISOCKPROXY_FAILED) proxy->errorc = 1;
+		if (proxy->next == ISOCKPROXY_FAILED) {
+			proxy->errorc = 1;
+		}
 	}
 
 	if (proxy->next == ISOCKPROXY_CONNECTING) {
 		retval = iproxy_poll(proxy->socket, 
-			ISOCKPROXY_OUT | ISOCKPROXY_ERR, 0);
-		if (retval & ISOCKPROXY_ERR) {
+			ISOCKPROXY_OUT | ISOCKPROXY_IN | ISOCKPROXY_ERR, 0);
+		if ((retval & ISOCKPROXY_ERR) || (retval & ISOCKPROXY_IN)) {
 			proxy->errorc = 2;
 			proxy->next = ISOCKPROXY_FAILED;
-		}	else
+		}	else 
 		if (retval & ISOCKPROXY_OUT) {
-			if (proxy->type == ISOCKPROXY_TYPE_NONE) 
-				proxy->next = ISOCKPROXY_CONNECTED;
-			else proxy->next = ISOCKPROXY_SENDING1;
+			int hr, e = 0, len = sizeof(int);
+			hr = igetsockopt(proxy->socket, SOL_SOCKET, SO_ERROR,
+					(char*)&e, &len);
+			if (hr < 0 || (hr == 0 && e != 0)) {
+				proxy->errorc = 2;
+				proxy->next = ISOCKPROXY_FAILED;
+			}	else {
+				if (proxy->type == ISOCKPROXY_TYPE_NONE) 
+					proxy->next = ISOCKPROXY_CONNECTED;
+				else proxy->next = ISOCKPROXY_SENDING1;
+			}
 		}
 	}
 
