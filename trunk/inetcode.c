@@ -2370,16 +2370,16 @@ int iproxy_process(struct ISOCKPROXY *proxy)
 	}
 
 	if (proxy->next == ISOCKPROXY_CONNECTING) {
-		retval = iproxy_poll(proxy->socket, 
-			ISOCKPROXY_OUT | ISOCKPROXY_IN | ISOCKPROXY_ERR, 0);
+		int mask = ISOCKPROXY_OUT | ISOCKPROXY_IN | ISOCKPROXY_ERR;
+		int fd = proxy->socket;
+		retval = iproxy_poll(fd, mask, 0);
 		if ((retval & ISOCKPROXY_ERR) || (retval & ISOCKPROXY_IN)) {
 			proxy->errorc = 2;
 			proxy->next = ISOCKPROXY_FAILED;
 		}	else 
 		if (retval & ISOCKPROXY_OUT) {
 			int hr, e = 0, len = sizeof(int);
-			hr = igetsockopt(proxy->socket, SOL_SOCKET, SO_ERROR,
-					(char*)&e, &len);
+			hr = igetsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&e, &len);
 			if (hr < 0 || (hr == 0 && e != 0)) {
 				proxy->errorc = 2;
 				proxy->next = ISOCKPROXY_FAILED;
