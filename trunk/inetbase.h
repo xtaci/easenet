@@ -930,7 +930,7 @@ iulong iposix_sem_value(iPosixSemaphore *sem);
 /*===================================================================*/
 
 /* GetSystemTime (utc=1) or GetLocalTime (utc=0) */
-IINT64 iposix_datetime(int utc);
+void iposix_datetime(int utc, IINT64 *BCD);
 
 /* macros to unpack posix time */
 #define iposix_time_year(bcd) ((int)(((bcd) >> 48) & 0xffff))
@@ -942,6 +942,10 @@ IINT64 iposix_datetime(int utc);
 #define iposix_time_sec(bcd)  ((int)(((bcd) >> 10) & 63))
 #define iposix_time_ms(bcd)   ((int)(((bcd) >>  0) & 1023))
 
+
+/* make up date time */
+void iposix_date_make(IINT64 *BCD, int year, int mon, int mday, int wday,
+	int hour, int min, int sec, int ms);
 
 /* format date time */
 char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst);

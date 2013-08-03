@@ -29,6 +29,7 @@
 // AsyncCore         异步框架
 //
 // Queue             线程安全的队列
+// TaskPool          线程池任务管理器
 //
 // CsvReader         CSV文件读取
 // CsvWriter         CSV文件写入
@@ -309,9 +310,12 @@ public:
 		int hr = iposix_thread_start(_thread);
 		if (hr != 0) {
 			char text[128];
+			char code[32];
 			strncpy(text, "start thread(", 100);
 			strncat(text, iposix_thread_get_name(_thread), 100);
-			strncat(text, ") failed", 100);
+			strncat(text, ") failed errno=", 100);
+			iltoa(ierrno(), code, 10);
+			strncat(text, code, 100);
 			SYSTEM_THROW(text, 10004);
 		}
 	}
@@ -428,7 +432,7 @@ public:
 	Timer() {
 		_timer = iposix_timer_new();
 		if (_timer == NULL) 
-			SYSTEM_THROW("create Timer failed", 10004);
+			SYSTEM_THROW("create Timer failed", 10005);
 	}
 
 	virtual ~Timer() {
@@ -478,7 +482,7 @@ public:
 	Semaphore(unsigned long maximum = 0xfffffffful) {
 		_sem = iposix_sem_new((iulong)maximum);
 		if (_sem == NULL) 
-			SYSTEM_THROW("create Semaphore failed", 10003);
+			SYSTEM_THROW("create Semaphore failed", 10011);
 	}
 
 	virtual ~Semaphore() {
@@ -521,7 +525,7 @@ public:
 		ipoll_init(IDEVICE_AUTO);
 		int retval = ipoll_create(&_ipoll_desc, 2000);
 		if (retval != 0) {
-			SYSTEM_THROW("error to create poll descriptor", 10003);
+			SYSTEM_THROW("error to create poll descriptor", 10013);
 		}
 	}
 
@@ -629,7 +633,7 @@ public:
 	MemNode(int nodesize = 8, int growlimit = 1024) {
 		_node = imnode_create(nodesize, growlimit);
 		if (_node == NULL) {
-			SYSTEM_THROW("Error to create imemnode_t", 10004);
+			SYSTEM_THROW("Error to create imemnode_t", 10006);
 		}
 		_nodesize = nodesize;
 	}
@@ -795,7 +799,7 @@ public:
 	CryptRC4(const unsigned char *key, int size) {
 		_box = new unsigned char[256];
 		if (_box == NULL) {
-			SYSTEM_THROW("error to alloc rc4 box", 10004);
+			SYSTEM_THROW("error to alloc rc4 box", 10007);
 		}
 		icrypt_rc4_init(_box, &x, &y, key, size);
 	}
@@ -1068,7 +1072,7 @@ public:
 	Queue(iulong maxsize = 0) {
 		_queue = queue_safe_new(maxsize);
 		if (_queue == NULL) 
-			SYSTEM_THROW("can not create Queue", 10005);
+			SYSTEM_THROW("can not create Queue", 10008);
 	}
 
 	virtual ~Queue() {
@@ -1538,8 +1542,8 @@ struct DateTime
 	DateTime() {}
 	DateTime(const DateTime &dt) { datetime = dt.datetime; }
 	
-	inline void localtime() { datetime = iposix_datetime(0); }
-	inline void gmtime() { datetime = iposix_datetime(1); }
+	inline void localtime() { iposix_datetime(0, &datetime); }
+	inline void gmtime() { iposix_datetime(1, &datetime); }
 
 	inline int year() const { return iposix_time_year(datetime); }
 	inline int month() const { return iposix_time_mon(datetime); }
@@ -1569,6 +1573,211 @@ inline std::ostream & operator << (std::ostream & os, const DateTime &m) {
 	m.trace(os);
 	return os;
 }
+
+
+
+//---------------------------------------------------------------------
+// 线程任务接口
+//---------------------------------------------------------------------
+struct TaskInt
+{
+	// 任务线程池执行完一个任务就会自动删除任务，但是如果任务还没有执
+	// 行，任务线程池就析构了的话，有可能下面的run/done/error/final都
+	// 没有调用到，任务就会提前被删除
+	virtual ~TaskInt() {}
+	
+	// 工作线程调用的主函数
+	virtual void run() = 0;
+
+	// 主线程调用，如果 run 没有抛出异常（多线程里尽量别异常）
+	virtual void done() {}
+
+	// 主线程调用，如果 run 抛出异常，则调用这里
+	virtual void error() {}
+
+	// 主线程调用，结束调用，释放资源用
+	virtual void final() {}
+};
+
+
+//---------------------------------------------------------------------
+// 任务线程池
+//---------------------------------------------------------------------
+class TaskPool
+{
+public:
+
+	// 开始：设定名称以及线程数量
+	TaskPool(const char *name, int nthreads, int slap = 50) {
+		_name = name;
+		if (nthreads < 1) {
+			SYSTEM_THROW("nthreads must great than zero", 10009);
+		}
+		_threads.resize(nthreads);
+		for (int i = 0; i < nthreads; i++) {
+			std::string text = name;
+			char buf[64];
+			iltoa(i, buf, 10);
+			text += "(";
+			text += buf;
+			text += ")";
+			_threads[i] = new Thread(__thread_entry, this, text.c_str());
+			if (_threads[i] == NULL) {
+				SYSTEM_THROW("can not create thread for TaskPool", 10012);
+			}
+		}
+		_stop = false;
+		_start = false;
+		_slap = slap;
+		_nthreads = nthreads;
+	}
+
+	// 结束线程池并删除未完成的任务
+	virtual ~TaskPool() {
+		TaskNode *node;
+		void *obj;
+		stop();
+		for (int i = 0; i < _nthreads; i++) {
+			delete _threads[i];
+			_threads[i] = NULL;
+		}
+		while (1) {
+			if (_queue_out.get(&obj, 0) == 0) break;
+			node = (TaskNode*)obj;
+			delete node->task;
+			node->task = NULL;
+			delete node;
+		}
+		while (1) {
+			if (_queue_in.get(&obj, 0) == 0) break;
+			node = (TaskNode*)obj;
+			delete node->task;
+			node->task = NULL;
+			delete node;
+		}
+	}
+
+	// 开始线程
+	inline bool start() {
+		if (_start) return true;
+		_stop = false;
+		for (int i = 0; i < _nthreads; i++) {
+			_threads[i]->set_signal(i);
+			_threads[i]->start();
+		}
+		_start = true;
+		return true;
+	}
+
+	// 结束线程
+	inline void stop() {
+		if (_start == false) return;
+		_stop = true;
+		for (int i = 0; i < _nthreads; i++) {
+			_threads[i]->set_notalive();
+			_threads[i]->join();
+		}
+		_start = false;
+	}
+
+	// 放入任务
+	inline bool push(TaskInt *task) {
+		if (_stop) return false;
+		TaskNode *node = new TaskNode;
+		node->task = task;
+		if (_queue_in.put(node, 0) == 0) return false;
+		return true;
+	}
+
+	// 更新：在主线程处理任务的结果，调用任务的 done/error/final方法，循环调用
+	inline void update() {
+		while (1) {
+			void *objs[64];
+			int hr = _queue_out.get_many(objs, 64, 0);
+			if (hr == 0) break;
+			for (int i = 0; i < hr; i++) {
+				TaskNode *node = (TaskNode*)objs[i];
+				TaskInt *task = node->task;
+				if (node->ok) {
+					try { task->done(); }
+					catch (...) {}
+				}	else {
+					try { task->error(); }
+					catch (...) {}
+				}
+				try { task->final(); }
+				catch (...) { }
+				delete node->task;
+				node->task = NULL;
+				delete node;
+			}
+		}
+	}
+
+	// 取得未执行完成的任务数量
+	inline int size() {
+		int x1, x2;
+		x1 = (int)_queue_in.size();
+		x2 = (int)_queue_out.size();
+		return x1 + x2;
+	}
+
+	// 等待所有任务结束
+	inline void wait() {
+		while (size() > 0) {
+			update();
+			isleep(_slap);
+		}
+	}
+
+protected:
+	struct TaskNode { TaskInt *task; bool ok; };
+
+	// 处理一个任务
+	inline void __task_invoke(TaskNode *node) {
+		node->ok = true;
+		try { node->task->run(); }
+		catch (...) { node->ok = false; }
+		_queue_out.put(node, IEVENT_INFINITE);
+	}
+
+	// 线程单次调用入口
+	inline int __run() {
+		if (_stop) return 0;
+		if (_nthreads > 1) {
+			void *obj;
+			int hr = _queue_in.get(&obj, (IUINT32)_slap);
+			if (hr == 0) return 1;
+			__task_invoke((TaskNode*)obj);
+		}	else {
+			void *objs[16];
+			int hr = _queue_in.get_many(objs, 16, (IUINT32)_slap);
+			if (hr == 0) return 1;
+			for (int i = 0; i < hr; i++) {
+				__task_invoke((TaskNode*)objs[i]);
+			}
+		}
+		return 1;
+	}
+
+	// 线程静态入口
+	static int __thread_entry(void *p) {
+		TaskPool *self = (TaskPool*)p;
+		int hr = self->__run();
+		return hr;
+	}
+
+protected:
+	bool _stop;
+	bool _start;
+	int _nthreads;
+	int _slap;
+	Queue _queue_in;
+	Queue _queue_out;
+	std::string _name;
+	std::vector<Thread*> _threads;
+};
+
 
 
 //---------------------------------------------------------------------
