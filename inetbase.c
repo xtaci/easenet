@@ -4708,7 +4708,7 @@ iulong iposix_sem_value(iPosixSemaphore *sem)
 /*===================================================================*/
 
 /* GetSystemTime (utc=1) or GetLocalTime (utc=0) */
-IINT64 iposix_datetime(int utc) 
+void iposix_datetime(int utc, IINT64 *BCD) 
 {
 	IUINT32 year, month, mday, wday, hour, min, sec, ms;
 	IINT64 bcd = 0;
@@ -4770,9 +4770,24 @@ IINT64 iposix_datetime(int utc)
 	bcd |= ((IINT64)month) << 35;
 	bcd |= ((IINT64)year) << 48;
 
-	return bcd;
+	BCD[0] = bcd;
 }
 
+/* make up date time */
+void iposix_date_make(IINT64 *BCD, int year, int mon, int mday, int wday,
+	int hour, int min, int sec, int ms)
+{
+	IINT64 bcd = 0;
+	bcd |= (ms & 1023);
+	bcd |= ((IINT64)sec) << 10;
+	bcd |= ((IINT64)min) << 16;
+	bcd |= ((IINT64)hour) << 22;
+	bcd |= ((IINT64)wday) << 27;
+	bcd |= ((IINT64)mday) << 30;
+	bcd |= ((IINT64)mon) << 35;
+	bcd |= ((IINT64)year) << 48;
+	BCD[0] = bcd;
+}
 
 /* format date time */
 char *iposix_date_format(const char *fmt, IINT64 datetime, char *dst)
