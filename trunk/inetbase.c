@@ -4690,6 +4690,46 @@ iulong iposix_sem_wait(iPosixSemaphore *sem, iulong count,
 	return decreased;
 }
 
+/* returns how much it can be decreased */
+iulong iposix_sem_peek(iPosixSemaphore *sem, iulong count,
+	unsigned long millisec, iPosixSemHook hook, void *arg)
+{
+	iulong decreased = 0;
+
+	if (count == 0) return 0;
+
+	IMUTEX_LOCK(&sem->lock);
+
+	if (sem->value == 0 && millisec != 0) {
+		if (millisec != IEVENT_INFINITE) {
+			while (sem->value == 0) {
+				IUINT32 ts = iclock();
+				IUINT32 last = millisec > 10000? 10000 : (IUINT32)millisec;
+				iposix_cond_sleep_cs_time(sem->cond_not_empty, 
+					&sem->lock, last);
+				last = iclock() - ts;
+				if (millisec <= (unsigned long)last) {
+					break;
+				}	else {
+					millisec -= (unsigned long)last;
+				}
+			}
+		}	else {
+			while (sem->value == 0) {
+				iposix_cond_sleep_cs(sem->cond_not_empty, &sem->lock);
+			}
+		}
+	}
+
+	if (sem->value > 0) {
+		decreased = (count < sem->value)? count : sem->value;
+		if (hook) hook(decreased, arg);
+	}
+
+	IMUTEX_UNLOCK(&sem->lock);
+
+	return decreased;
+}
 
 /* get the count value of the specified semaphore */
 iulong iposix_sem_value(iPosixSemaphore *sem)

@@ -1807,6 +1807,18 @@ void queue_safe_hook_get(iulong count, void *p)
 	}
 }
 
+// peek hook
+void queue_safe_hook_peek(iulong count, void *p)
+{
+	struct iQueueSafeArg *args = (struct iQueueSafeArg*)p;
+	ilong need = (ilong)(sizeof(void*) * count);
+	ilong hr;
+	hr = ims_peek(&args->q->stream, args->out, need);
+	if (hr != need) {
+		assert(hr == need);
+	}
+}
+
 // put many objs into queue, returns how many obj have entered the queue 
 int queue_safe_put_vec(iQueueSafe *q, const void * const vecptr[], 
 	int count, unsigned long millisec)
@@ -1835,6 +1847,20 @@ int queue_safe_get_vec(iQueueSafe *q, void *vecptr[], int count,
 	return hr;
 }
 
+// peek objs from queue, returns how many obj have been peeken
+int queue_safe_peek_vec(iQueueSafe *q, void *vecptr[], int count, 
+	unsigned long millisec)
+{
+	struct iQueueSafeArg args;
+	int hr;
+	if (q->stop || count <= 0) return 0;
+	args.q = q;
+	args.out = (void*)vecptr;
+	hr = (int)iposix_sem_peek(q->sem, count, millisec, 
+				queue_safe_hook_peek, &args);
+	return hr;
+}
+
 // put obj into queue, returns 1 for success, 0 for full
 int queue_safe_put(iQueueSafe *q, void *ptr, unsigned long millisec)
 {
@@ -1848,6 +1874,16 @@ int queue_safe_get(iQueueSafe *q, void **ptr, unsigned long millisec)
 	void *vecptr[1];
 	int hr;
 	hr = queue_safe_get_vec(q, vecptr, 1, millisec);
+	if (ptr) ptr[0] = vecptr[0];
+	return hr;
+}
+
+// peek obj from queue, returns 1 for success, 0 for empty
+int queue_safe_peek(iQueueSafe *q, void **ptr, unsigned long millisec)
+{
+	void *vecptr[1];
+	int hr;
+	hr = queue_safe_peek_vec(q, vecptr, 1, millisec);
 	if (ptr) ptr[0] = vecptr[0];
 	return hr;
 }

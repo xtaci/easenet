@@ -313,12 +313,21 @@ int queue_safe_put(iQueueSafe *q, void *ptr, unsigned long millisec);
 // get obj from queue, returns 1 for success, 0 for empty
 int queue_safe_get(iQueueSafe *q, void **ptr, unsigned long millisec);
 
+// peek obj from queue, returns 1 for success, 0 for empty
+int queue_safe_peek(iQueueSafe *q, void **ptr, unsigned long millisec);
+
+// peek obj from queue, returns 1 for success, 0 for empty
+
 // put many objs into queue, returns how many obj have entered the queue 
 int queue_safe_put_vec(iQueueSafe *q, const void * const vecptr[], 
 	int count, unsigned long millisec);
 
 // get objs from queue, returns how many obj have been fetched
 int queue_safe_get_vec(iQueueSafe *q, void *vecptr[], int count,
+	unsigned long millisec);
+
+// peek objs from queue, returns how many obj have been peeken
+int queue_safe_peek_vec(iQueueSafe *q, void *vecptr[], int count, 
 	unsigned long millisec);
 
 // get size

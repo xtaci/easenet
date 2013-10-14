@@ -920,6 +920,10 @@ iulong iposix_sem_post(iPosixSemaphore *sem, iulong count,
 iulong iposix_sem_wait(iPosixSemaphore *sem, iulong count,
 	unsigned long millisec, iPosixSemHook hook, void *arg);
 
+/* returns how much it can be decreased */
+iulong iposix_sem_peek(iPosixSemaphore *sem, iulong count,
+	unsigned long millisec, iPosixSemHook hook, void *arg);
+
 /* get the count value of the specified semaphore */
 iulong iposix_sem_value(iPosixSemaphore *sem);
 
