@@ -1094,12 +1094,20 @@ public:
 		return queue_safe_get(_queue, obj, millisec);
 	}
 
+	int peek(void **obj, unsigned long millisec = IEVENT_INFINITE) {
+		return queue_safe_peek(_queue, obj, millisec);
+	}
+
 	int put_many(const void * const vecptr[], int count, unsigned long ms) {
 		return queue_safe_put_vec(_queue, vecptr, count, ms);
 	}
 
 	int get_many(void *vecptr[], int count, unsigned long ms) {
 		return queue_safe_get_vec(_queue, vecptr, count, ms);
+	}
+
+	int peek_many(void *vecptr[], int count, unsigned long ms) {
+		return queue_safe_peek_vec(_queue, vecptr, count, ms);
 	}
 
 protected:
