@@ -1731,6 +1731,23 @@ void async_core_timeout(CAsyncCore *core, long seconds)
 	core->timeout = seconds * 1000;
 }
 
+// getsockname
+int async_core_sockname(const CAsyncCore *core, long hid, 
+	struct sockaddr *addr, int *size)
+{
+	const CAsyncSock *sock = async_core_node_get_const(core, hid);
+	if (sock == NULL) return -2;
+	return isockname(sock->fd, addr, size);
+}
+
+// getpeername
+int async_core_peername(const CAsyncCore *core, long hid,
+	struct sockaddr *addr, int *size)
+{
+	const CAsyncSock *sock = async_core_node_get_const(core, hid);
+	if (sock == NULL) return -2;
+	return ipeername(sock->fd, addr, size);
+}
 
 
 //=====================================================================

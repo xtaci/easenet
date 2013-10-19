@@ -498,12 +498,20 @@ public:
 		return iposix_sem_wait(_sem, count, millisec, NULL, NULL);
 	}
 
+	iulong peek(iulong count, unsigned long millisec = IEVENT_INFINITE) {
+		return iposix_sem_peek(_sem, count, millisec, NULL, NULL);
+	}
+
 	iulong post(iulong count, unsigned long millisec, iPosixSemHook hook, void *arg) {
 		return iposix_sem_post(_sem, count, millisec, hook, arg);
 	}
 
 	iulong wait(iulong count, unsigned long millisec, iPosixSemHook hook, void *arg) {
 		return iposix_sem_wait(_sem, count, millisec, hook, arg);
+	}
+
+	iulong peek(iulong count, unsigned long millisec, iPosixSemHook hook, void *arg) {
+		return iposix_sem_peek(_sem, count, millisec, hook, arg);
 	}
 
 	iulong value() {
@@ -1045,6 +1053,20 @@ public:
 	void set_firewall(CAsyncValidator validator, void *user) {
 		CriticalScope scope(*_lock);
 		async_core_firewall(_core, validator, user);
+	}
+
+	int sockname(long hid, struct sockaddr *addr, int *addrlen = NULL) {
+		CriticalScope scope(*_lock);
+		int size = 0;
+		if (addrlen == NULL) addrlen = &size;
+		return async_core_sockname(_core, hid, addr, addrlen);
+	}
+
+	int peername(long hid, struct sockaddr *addr, int *addrlen = NULL) {
+		CriticalScope scope(*_lock);
+		int size = 0;
+		if (addrlen == NULL) addrlen = &size;
+		return async_core_peername(_core, hid, addr, addrlen);
 	}
 
 	void rc4_set_skey(long hid, const unsigned char *key, int len) {
