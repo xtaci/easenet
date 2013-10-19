@@ -293,6 +293,13 @@ void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 // set timeout
 void async_core_timeout(CAsyncCore *core, long seconds);
 
+// getsockname
+int async_core_sockname(const CAsyncCore *core, long hid, 
+	struct sockaddr *addr, int *size);
+
+// getpeername
+int async_core_peername(const CAsyncCore *core, long hid,
+	struct sockaddr *addr, int *size);
 
 
 //=====================================================================

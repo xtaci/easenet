@@ -109,13 +109,13 @@ int ihttpsock_proxy(IHTTPSOCK *httpsock, int type,
 	if (addr == NULL) return 0;
 	if (user) {
 		int len = strlen(user);
-		httpsock->proxy_user = ikmem_malloc(len + 1);
+		httpsock->proxy_user = (char*)ikmem_malloc(len + 1);
 		if (httpsock->proxy_user == NULL) return -1;
 		memcpy(httpsock->proxy_user, user, len + 1);
 	}
 	if (pass) {
 		int len = strlen(pass);
-		httpsock->proxy_pass = ikmem_malloc(len + 1);
+		httpsock->proxy_pass = (char*)ikmem_malloc(len + 1);
 		if (httpsock->proxy_pass == NULL) return -2;
 		memcpy(httpsock->proxy_pass, pass, len + 1);
 	}
@@ -567,14 +567,14 @@ int ihttplib_proxy(IHTTPLIB *http, int type, const char *addr,
 
 	if (user) {
 		int len = strlen(user);
-		http->proxy_user = ikmem_malloc(len + 1);
+		http->proxy_user = (char*)ikmem_malloc(len + 1);
 		if (http->proxy_user == NULL) return -1;
 		memcpy(http->proxy_user, user, len + 1);
 	}
 
 	if (pass) {
 		int len = strlen(pass);
-		http->proxy_pass = ikmem_malloc(len + 1);
+		http->proxy_pass = (char*)ikmem_malloc(len + 1);
 		if (http->proxy_pass == NULL) return -2;
 		memcpy(http->proxy_pass, pass, len + 1);
 	}
