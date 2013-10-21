@@ -256,6 +256,8 @@ long async_core_remain(const CAsyncCore *core, long hid);
 // set default buffer limit and max packet size
 void async_core_limit(CAsyncCore *core, long limited, long maxsize);
 
+// set disable read polling event: 1/on, 0/off
+int async_core_disable(CAsyncCore *core, long hid, int value);
 
 
 // get first node
