@@ -1050,6 +1050,11 @@ public:
 		async_core_timeout(_core, seconds);
 	}
 
+	int disable(long hid, bool value) {
+		CriticalScope scope(*_lock);
+		return async_core_disable(_core, hid, value? 1 : 0);
+	}
+
 	void set_firewall(CAsyncValidator validator, void *user) {
 		CriticalScope scope(*_lock);
 		async_core_firewall(_core, validator, user);

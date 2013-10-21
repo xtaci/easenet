@@ -1717,6 +1717,16 @@ void async_core_limit(CAsyncCore *core, long limited, long maxsize)
 	}
 }
 
+// set disable read polling event: 1/on, 0/off
+int async_core_disable(CAsyncCore *core, long hid, int value)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -1;
+	if (value == 0) {
+		return async_core_node_mask(core, sock, IPOLL_IN, 0);
+	}
+	return async_core_node_mask(core, sock, 0, IPOLL_IN);
+}
 
 // set remote ip validator
 void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user)
