@@ -1000,6 +1000,11 @@ public:
 		return async_core_new_listen(_core, remote.address(), 0, header);
 	}
 
+	long new_assign(int fd, int header = 0, bool check_estab = true) {
+		CriticalScope scope(*_lock);
+		return async_core_new_assign(_core, fd, header, check_estab? 1 : 0);
+	}
+
 	long get_mode(long hid) const {
 		CriticalScope scope(*_lock);
 		return async_core_get_mode(_core, hid);
@@ -1082,6 +1087,11 @@ public:
 	void rc4_set_rkey(long hid, const unsigned char *key, int len) {
 		CriticalScope scope(*_lock);
 		async_core_rc4_set_rkey(_core, hid, key, len);
+	}
+
+	long count() const {
+		CriticalScope scope(*_lock);
+		return async_core_count(_core);
 	}
 
 protected:

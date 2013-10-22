@@ -1318,6 +1318,77 @@ long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
 
 
 //---------------------------------------------------------------------
+// new assign to a existing socket, returns hid
+//---------------------------------------------------------------------
+long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
+{
+	CAsyncSock *sock;
+	long hid;
+	int hr;
+	char name[64];
+	int size = 64;
+	int ipv6 = 0;
+
+	if (ienable(fd, ISOCK_NOBLOCK) != 0) {
+		return -1;
+	}
+
+	if (isockname(fd, (struct sockaddr*)name, &size) == 0) {
+		if (size > sizeof(struct sockaddr_in)) {
+			ipv6 = 1;
+		}
+	}	else {
+		memset(name, 0, 64);
+		size = sizeof(struct sockaddr_in);
+		if (estab) {
+			return -2;
+		}
+	}
+
+	if (estab) {
+		int event = ISOCK_ERECV | ISOCK_ESEND | ISOCK_ERROR;
+		event = ipollfd(fd, event, 0);
+		if (event & ISOCK_ERROR) {
+			return -3;
+		}	else
+		if (event & ISOCK_ESEND) {
+			int len = sizeof(int), error = 0;
+			hr = igetsockopt(fd, SOL_SOCKET, SO_ERROR, 
+					(char*)&error, &len);
+			if (hr < 0 || (hr == 0 && error != 0)) return -4;
+		}
+	}
+
+	hid = async_core_node_new(core);
+	if (hid < 0) return -1;
+
+	sock = async_core_node_get(core, hid);
+
+	if (sock == NULL) {
+		assert(sock);
+		abort();
+	}
+
+	async_sock_assign(sock, fd, header);
+	sock->ipv6 = ipv6;
+
+	hr = ipoll_add(core->pfd, sock->fd, IPOLL_OUT | IPOLL_ERR, sock);
+	if (hr != 0) {
+		async_core_node_delete(core, hid);
+		return -3;
+	}
+
+	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_IN | IPOLL_ERR, 0);
+	sock->mode = ASYNC_CORE_NODE_ASSIGN;
+
+	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
+		0, name, size);
+
+	return hid;
+}
+
+
+//---------------------------------------------------------------------
 // new listener, returns hid
 //---------------------------------------------------------------------
 long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr, 
@@ -1601,7 +1672,7 @@ long async_core_read(CAsyncCore *core, int *event, long *wparam,
 }
 
 //---------------------------------------------------------------------
-// get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6
+// get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN
 // returns -1 for not exists
 //---------------------------------------------------------------------
 int async_core_get_mode(const CAsyncCore *core, long hid)
@@ -1757,6 +1828,12 @@ int async_core_peername(const CAsyncCore *core, long hid,
 	const CAsyncSock *sock = async_core_node_get_const(core, hid);
 	if (sock == NULL) return -2;
 	return ipeername(sock->fd, addr, size);
+}
+
+// get fd count
+long async_core_count(const CAsyncCore *core)
+{
+	return core->count;
 }
 
 
@@ -2380,7 +2457,7 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 		proxy->data[406] = strlen(addr);
 		memcpy(proxy->data + 407, addr, strlen(addr));
 		memcpy(proxy->data + 407 + strlen(addr), &(endpoint->sin_port), 2);
-		*(short*)(proxy->data + 400) = 7 + strlen(addr);
+		iencode16u_lsb((char*)(proxy->data + 400), 7 + (short)strlen(addr));
 		if (authent) {
 			i = strlen(user);
 			j = strlen(pass);
@@ -2389,7 +2466,7 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 			memcpy(proxy->data + 704, user, i);
 			proxy->data[704 + i] = j;
 			memcpy(proxy->data + 704 + i + 1, pass, j);
-			*(short*)(proxy->data + 700) = 3 + i + j;
+			iencode16u_lsb((char*)proxy->data + 700, 3 + i + j);
 		}
 		break;
 	}
@@ -2520,11 +2597,12 @@ int iproxy_process(struct ISOCKPROXY *proxy)
 				proxy->errorc = 31;
 			}
 			else if (proxy->offset >= 2) {
+				unsigned short length;
+				idecode16u_lsb((char*)(proxy->data + 400), &length);
 				if (proxy->authen == 0) {
 					if (proxy->data[0] == 5 && proxy->data[1] == 0) {
-						memcpy(proxy->data, proxy->data + 402, 
-							*(short*)(proxy->data + 400));
-						proxy->totald = *(short*)(proxy->data + 400);
+						memcpy(proxy->data, proxy->data + 402, length);
+						proxy->totald = length;
 						proxy->next = ISOCKPROXY_SENDING3;
 					}	else {
 						proxy->next = ISOCKPROXY_FAILED; 
@@ -2532,15 +2610,14 @@ int iproxy_process(struct ISOCKPROXY *proxy)
 					}
 				}	else {
 					if (proxy->data[0] == 5 && proxy->data[1] == 0) {
-						memcpy(proxy->data, proxy->data + 402,
-							*(short*)(proxy->data + 400));
-						proxy->totald = *(short*)(proxy->data + 400);
+						memcpy(proxy->data, proxy->data + 402, length);
+						proxy->totald = length;
 						proxy->next = ISOCKPROXY_SENDING3;
 					}	else
 					if (proxy->data[0] == 5 && proxy->data[1] == 2) {
-						memcpy(proxy->data, proxy->data + 702, 
-							*(short*)(proxy->data + 700));
-						proxy->totald = *(short*)(proxy->data + 700);
+						idecode16u_lsb((char*)(proxy->data + 700), &length);
+						memcpy(proxy->data, proxy->data + 702, length);
+						proxy->totald = length;
 						proxy->next = ISOCKPROXY_SENDING2;
 					}	else {
 						proxy->next = ISOCKPROXY_FAILED;
@@ -2571,9 +2648,10 @@ int iproxy_process(struct ISOCKPROXY *proxy)
 					proxy->errorc = 42;
 				}
 				else {
-					memcpy(proxy->data, proxy->data + 402, 
-						*(short*)(proxy->data + 400));
-					proxy->totald = *(short*)(proxy->data + 400);
+					unsigned short xsize = 0;
+					idecode16u_lsb((char*)(proxy->data + 400), &xsize);
+					memcpy(proxy->data, proxy->data + 402, xsize);
+					proxy->totald = xsize;
 					proxy->next = ISOCKPROXY_SENDING3;
 					proxy->offset = 0;
 				}
