@@ -196,7 +196,8 @@ typedef struct CAsyncCore CAsyncCore;
 #define ASYNC_CORE_NODE_OUT			2		// connected out node
 #define ASYNC_CORE_NODE_LISTEN4		3		// ipv4 listener
 #define ASYNC_CORE_NODE_LISTEN6		4		// ipv6 listener
-#define ASYNC_CORE_NODE_ASSIGN		5		// assigned fd
+#define ASYNC_CORE_NODE_ASSIGN4		5		// assigned fd ipv4
+#define ASYNC_CORE_NODE_ASSIGN6		6		// assigned fd ipv6
 
 // Remote IP Validator: returns 1 to accept it, 0 to reject
 typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,

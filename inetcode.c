@@ -1325,9 +1325,9 @@ long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
 	CAsyncSock *sock;
 	long hid;
 	int hr;
-	char name[64];
 	int size = 64;
 	int ipv6 = 0;
+	char name[128];
 
 	if (ienable(fd, ISOCK_NOBLOCK) != 0) {
 		return -1;
@@ -1379,7 +1379,11 @@ long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
 	}
 
 	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_IN | IPOLL_ERR, 0);
-	sock->mode = ASYNC_CORE_NODE_ASSIGN;
+	sock->mode = ipv6? ASYNC_CORE_NODE_ASSIGN6 : ASYNC_CORE_NODE_ASSIGN4;
+
+	if (ipeername(fd, (struct sockaddr*)(name + 64), &size) == 0) {
+		memcpy(name, name + 64, 64);
+	}
 
 	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
 		0, name, size);
