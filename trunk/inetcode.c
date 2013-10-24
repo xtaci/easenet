@@ -1860,7 +1860,7 @@ int async_core_peername(const CAsyncCore *core, long hid,
 }
 
 // get fd count
-long async_core_fds(const CAsyncCore *core)
+long async_core_nfds(const CAsyncCore *core)
 {
 	return core->count;
 }
