@@ -1346,7 +1346,7 @@ long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
 	}
 
 	if (estab) {
-		int event = 
+		int event = ISOCK_ESEND | ISOCK_ERROR;
 		event = ipollfd(fd, event, 0);
 		if (event & ISOCK_ERROR) {
 			return -3;
