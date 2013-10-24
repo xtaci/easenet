@@ -1089,9 +1089,9 @@ public:
 		async_core_rc4_set_rkey(_core, hid, key, len);
 	}
 
-	long count() const {
+	long nfds() const {
 		CriticalScope scope(*_lock);
-		return async_core_count(_core);
+		return async_core_nfds(_core);
 	}
 
 protected:
