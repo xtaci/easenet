@@ -1377,6 +1377,24 @@ int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 	return 0;
 }
 
+/* check tcp is established ?, returns 1/true, 0/false, -1/error */
+int inet_tcp_estab(int sock)
+{
+	int event;
+	if (sock < 0) return -1;
+	event = ISOCK_ESEND | ISOCK_ERROR;
+	event = ipollfd(sock, event, 0);
+	if (event & ISOCK_ERROR) {
+		return -1;
+	}
+	if (event & ISOCK_ESEND) {
+		int hr = 0, len = sizeof(int), error = 0;
+		hr = igetsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &len);
+		if (hr < 0 || (hr == 0 && error != 0)) return -1;
+		return 1;
+	}
+	return 0;
+}
 
 
 /*===================================================================*/

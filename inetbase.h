@@ -681,6 +681,9 @@ int inet_open_port(unsigned short port, unsigned long ip, int noblock);
 /* set recv buf and send buf */
 int inet_set_bufsize(int sock, long recvbuf_size, long sendbuf_size);
 
+/* check tcp is established ?, returns 1/true, 0/false, -1/error */
+int inet_tcp_estab(int sock);
+
 
 /*===================================================================*/
 /* Cross-Platform Poll Interface                                     */

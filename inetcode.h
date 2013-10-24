@@ -196,8 +196,7 @@ typedef struct CAsyncCore CAsyncCore;
 #define ASYNC_CORE_NODE_OUT			2		// connected out node
 #define ASYNC_CORE_NODE_LISTEN4		3		// ipv4 listener
 #define ASYNC_CORE_NODE_LISTEN6		4		// ipv6 listener
-#define ASYNC_CORE_NODE_ASSIGN4		5		// assigned fd ipv4
-#define ASYNC_CORE_NODE_ASSIGN6		6		// assigned fd ipv6
+#define ASYNC_CORE_NODE_ASSIGN		5		// assigned fd ipv4
 
 // Remote IP Validator: returns 1 to accept it, 0 to reject
 typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,
@@ -285,6 +284,13 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 // set connection socket option
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);
 
+#define ASYNC_CORE_STATUS_STATE		0
+#define ASYNC_CORE_STATUS_IPV6		1
+#define ASYNC_CORE_STATUS_ESTAB		2
+
+// get connection socket status
+long async_core_status(CAsyncCore *core, long hid, int opt);
+
 // set connection rc4 send key
 int async_core_rc4_set_skey(CAsyncCore *core, long hid, 
 	const unsigned char *key, int keylen);
@@ -308,7 +314,7 @@ int async_core_peername(const CAsyncCore *core, long hid,
 	struct sockaddr *addr, int *size);
 
 // get fd count
-long async_core_count(const CAsyncCore *core);
+long async_core_nfds(const CAsyncCore *core);
 
 
 //=====================================================================
