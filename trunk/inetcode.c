@@ -1346,7 +1346,7 @@ long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
 	}
 
 	if (estab) {
-		int event = ISOCK_ERECV | ISOCK_ESEND | ISOCK_ERROR;
+		int event = 
 		event = ipollfd(fd, event, 0);
 		if (event & ISOCK_ERROR) {
 			return -3;
@@ -1379,7 +1379,7 @@ long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
 	}
 
 	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_IN | IPOLL_ERR, 0);
-	sock->mode = ipv6? ASYNC_CORE_NODE_ASSIGN6 : ASYNC_CORE_NODE_ASSIGN4;
+	sock->mode = ASYNC_CORE_NODE_ASSIGN;
 
 	if (ipeername(fd, (struct sockaddr*)(name + 64), &size) == 0) {
 		memcpy(name, name + 64, 64);
@@ -1758,6 +1758,31 @@ int async_core_option(CAsyncCore *core, long hid, int opt, long value)
 		hr = 0;
 		break;
 	}
+	return hr;
+}
+
+
+// get connection socket status
+long async_core_status(CAsyncCore *core, long hid, int opt)
+{
+	long hr = -100;
+	CAsyncSock *sock = async_core_node_get(core, hid);
+
+	if (sock == NULL) return -10;
+	if (sock->fd < 0) return -20;
+
+	switch (opt) {
+	case ASYNC_CORE_STATUS_STATE:
+		hr = sock->state;
+		break;
+	case ASYNC_CORE_STATUS_IPV6:
+		hr = sock->ipv6;
+		break;
+	case ASYNC_CORE_STATUS_ESTAB:
+		hr = inet_tcp_estab(sock->fd);
+		break;
+	}
+
 	return hr;
 }
 
