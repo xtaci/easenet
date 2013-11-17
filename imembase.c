@@ -1364,7 +1364,14 @@ static size_t ikmem_water_mark = 0;
 static size_t ikmem_range_high = 0;
 static size_t ikmem_range_low = 0;
 
-static const ikmemhook_t *ikmem_hook = NULL;
+#ifndef IKMEM_DISABLE
+#define IKMEM_DEFAULT_HOOK		NULL
+#else
+#define IKMEM_DEFAULT_HOOK		(&ikmem_std_hook);
+#endif
+
+extern const ikmemhook_t ikmem_std_hook;
+static const ikmemhook_t *ikmem_hook = IKMEM_DEFAULT_HOOK;
 
 
 static int ikmem_append(size_t size, struct IMEMGFP *gfp)
@@ -2012,7 +2019,7 @@ static void* ikmem_std_malloc(size_t size)
 {
 	size_t round = (size + 3) & ~((size_t)3);
 	char *lptr;
-	assert(size > 0);
+	assert(size >= 0);
 	lptr = (char*)internal_malloc(0, round + sizeof(void*));
 	if (lptr == NULL) return NULL;
 	*((size_t*)lptr) = (round | 1);
@@ -2058,7 +2065,7 @@ static void* ikmem_std_realloc(void *ptr, size_t size)
 		return NULL;
 	}
 
-	assert(oldsize > 0);
+	assert(oldsize >= 0);
 	if (oldsize >= size) {
 		if (oldsize * 3 < size * 4) 
 			return ptr;
@@ -2076,22 +2083,13 @@ static void* ikmem_std_realloc(void *ptr, size_t size)
 	return newptr;
 }
 
-static const ikmemhook_t ikmem_std_hook = 
+const ikmemhook_t ikmem_std_hook = 
 {
 	ikmem_std_malloc,
 	ikmem_std_free,
 	ikmem_std_realloc,
 	ikmem_std_ptr_size,
 	NULL,
-};
-
-static const ikmemhook_t ikmem_origin =
-{
-	ikmem_malloc,
-	ikmem_free,
-	ikmem_realloc,
-	ikmem_ptr_size,
-	ikmem_shrink,
 };
 
 int ikmem_hook_install(const ikmemhook_t *hook)
@@ -2121,7 +2119,7 @@ int ikmem_hook_install(const ikmemhook_t *hook)
 
 const ikmemhook_t *ikmem_hook_get(int id)
 {
-	if (id == 0) return &ikmem_origin;
+	if (id == 0) return NULL;
 	return &ikmem_std_hook;
 }
 

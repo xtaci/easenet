@@ -283,9 +283,13 @@ int ithread_detach(ilong id)
 int ithread_kill(ilong id)
 {
 	int retval = 0;
-	#ifdef __unix
+	#if defined(__unix)
+	#ifndef __ANDROID__
 	pthread_cancel((pthread_t)id);
 	retval = 0;
+	#else
+	retval = -1;
+	#endif
 	#elif defined(_WIN32) 
 	#ifndef _XBOX
 	TerminateThread((HANDLE)id, 0);
@@ -3036,8 +3040,10 @@ static int iposix_cond_posix_init(iConditionVariablePosix *cond)
 	pthread_condattr_t condAttr;
 	result = pthread_condattr_init(&condAttr);
 	if (result != 0) return -1;
+#ifndef __ANDROID__
 	result = pthread_condattr_setclock(&condAttr, CLOCK_MONOTONIC);
 	if (result != 0) return -1;
+#endif
 	result = pthread_cond_init(&cond->cond, &condAttr);
 	if (result != 0) return -1;
 	result = pthread_condattr_destroy(&condAttr);
@@ -3781,7 +3787,9 @@ void iposix_thread_delete(iPosixThread *thread)
 			thread->th = NULL;
 			thread->tid = 0;
 		#else
+			#ifndef __ANDROID__
 			if (thread->ptid) pthread_cancel(thread->ptid);
+			#endif
 			thread->ptid = 0;
 			if (thread->attr_inited) {
 				pthread_attr_destroy(&thread->attr);
@@ -3936,7 +3944,9 @@ int iposix_thread_start(iPosixThread *thread)
 	iposix_event_wait(thread->event, 10000);
 
 	if (thread->state != IPOSIX_THREAD_STATE_STARTED) {
+		#ifndef __ANDROID__
 		pthread_cancel(thread->ptid);
+		#endif
 		thread->ptid = (pthread_t)0;
 		pthread_attr_destroy(&thread->attr);
 		thread->attr_inited = 0;
@@ -4143,9 +4153,11 @@ int iposix_thread_cancel(iPosixThread *thread)
 	#else
 		assert(thread->ptid);
 		if (thread->ptid) {
+			#ifndef __ANDROID__
 			if (pthread_cancel(thread->ptid) == 0) {
 				result = 1;
 			}
+			#endif
 		}
 		thread->ptid = 0;
 		if (thread->attr_inited) {
@@ -4247,7 +4259,7 @@ int iposix_thread_affinity(iPosixThread *thread, unsigned int cpumask)
 		if (SetThreadAffinityMask(thread->th, mask) == 0) retval = -2;
 	#elif defined(__CYGWIN__) || defined(__AVM3__)
 		retval = -3;
-	#elif defined(__linux__) || defined(__ANDROID__)
+	#elif defined(__linux__) && (!defined(__ANDROID__))
 		cpu_set_t mask;
 		int i;
 		CPU_ZERO(&mask);
