@@ -763,7 +763,7 @@ void idict_clear(idict_t *dict);
 /*-------------------------------------------------------------------*/
 
 /* search: key(str) val(str) */
-int idict_search_sz(idict_t *dict, const char *key, ilong keysize,
+int idict_search_ss(idict_t *dict, const char *key, ilong keysize,
 	char **val, ilong *valsize);
 
 /* search: key(int) val(str) */
