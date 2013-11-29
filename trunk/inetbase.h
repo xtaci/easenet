@@ -13,6 +13,7 @@
 /*-------------------------------------------------------------------*/
 /* C99 Compatible                                                    */
 /*-------------------------------------------------------------------*/
+#if defined(linux) || defined(__linux) || defined(__linux__)
 #ifdef _POSIX_C_SOURCE
 #if _POSIX_C_SOURCE < 200112L
 #undef _POSIX_C_SOURCE
@@ -44,6 +45,7 @@
 #define __BSD_VISIBLE 1
 #define _XOPEN_SOURCE 600
 
+#endif
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -254,7 +256,16 @@ typedef SOCKET Socket;
 		#define __linux 1
 	#endif
 	#ifndef __linux__
-		#define __linux__ __linux
+		#define __linux__ 1
+	#endif
+#endif
+
+#if defined(__sun) || defined(__sun__)
+	#ifndef __sun
+		#define __sun 1
+	#endif
+	#ifndef __sun__
+		#define __sun__ 1
 	#endif
 #endif
 
