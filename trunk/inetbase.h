@@ -67,6 +67,10 @@
 #include <netdb.h>
 #include <netinet/in.h>
 
+#if defined(__sun) || defined(__sun__)
+#include <sys/filio.h>
+#endif
+
 #ifndef __unix
 #define __unix
 #endif
