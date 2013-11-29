@@ -29,6 +29,10 @@
 #include <netinet/tcp.h>
 #endif
 
+#if defined(__sun)
+#include <sys/filio.h>
+#endif
+
 #elif (defined(_WIN32) || defined(WIN32))
 #if ((!defined(_M_PPC)) && (!defined(_M_PPC_BE)) && (!defined(_XBOX)))
 #include <mmsystem.h>
