@@ -3,7 +3,10 @@
  * inetbase.h - basic interface of socket operation & system calls
  *
  * for more information, please see the readme file.
- * link: -lpthread -lrt (unix) / -lwsock32 -lwinmm -lws2_32 (win)
+ *
+ * link: -lpthread -lrt (linux/bsd) 
+ * link: -lwsock32 -lwinmm -lws2_32 (win)
+ * link: -lsocket -lnsl -lpthread (solaris)
  *
  **********************************************************************/
 
@@ -731,6 +734,9 @@ int ipoll_init(int device);
 
 /* quit poll device */
 int ipoll_quit(void);
+
+/* name of poll device */
+const char *ipoll_name(void);
 
 /* create poll descriptor */
 int ipoll_create(ipolld *ipd, int param);

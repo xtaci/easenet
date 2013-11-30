@@ -3,7 +3,10 @@
  * inetbase.c - basic interface of socket operation & system calls
  *
  * for more information, please see the readme file.
- * link: -lpthread -lrt (unix) / -lwsock32 -lwinmm -lws2_32 (win)
+ *
+ * link: -lpthread -lrt (linux/bsd) 
+ * link: -lwsock32 -lwinmm -lws2_32 (win)
+ * link: -lsocket -lnsl -lpthread (solaris)
  *
  **********************************************************************/
 
@@ -1427,7 +1430,7 @@ int inet_tcp_estab(int sock)
 /*#define IHAVE_WINCP*/
 #endif
 #if defined(sun)
-/*#define IHAVE_DEVPOLL*/
+#define IHAVE_DEVPOLL
 #endif
 
 #if defined(__MACH__) && (!defined(IHAVE_KEVENT))
@@ -1590,10 +1593,19 @@ int ipoll_quit(void)
 	return 0;
 }
 
+/* name of poll device */
+const char *ipoll_name(void)
+{
+	if (ipoll_inited == 0) return 0;
+	return IPOLLDRV.name;
+}
+
 /* pfd create */
 int ipoll_create(ipolld *ipd, int param)
 {
 	ipolld pd;
+
+	if (ipoll_inited == 0) ipoll_init(IDEVICE_AUTO);
 
 	assert(ipd && ipoll_inited);
 	if (ipd == NULL || ipoll_inited == 0) return -1;
@@ -1950,7 +1962,7 @@ static int ips_poll_wait(ipolld ipd, int timeval)
 	ps->fdwtest = ps->fdw;
 	ps->fdetest = ps->fde;
 	nbits = select(ps->max_fd + 1, &ps->fdrtest, &ps->fdwtest, 
-		&ps->fdetest, &timeout);
+		&ps->fdetest, (timeval < 0)? NULL : &timeout);
 	if (nbits < 0) return -1;
 
 	ps->cur_fd = ps->min_fd - 1;
@@ -2352,7 +2364,6 @@ static int ipk_init_pd(ipolld ipd, int param)
 	param = param;
 
 	if (ipk_grow(ps, 4, 4)) {
-		ipoll_fvdestroy(&ps->fv);
 		ipk_destroy_pd(ipd);
 		return -3;
 	}
@@ -2385,7 +2396,7 @@ static int ipk_grow(PSTRUCT *ps, int size_fd, int size_chg)
 		ps->max_fd = size_fd;
 		if (r) return -1;
 	}
-	if (size_chg>= 0) {
+	if (size_chg >= 0) {
 		r = ipv_resize(&ps->vchange, size_chg * sizeof(struct kevent));
 		ps->mchange = (struct kevent*)ps->vchange.data;
 		ps->max_chg= size_chg;
@@ -2653,8 +2664,11 @@ static int ipe_init_pd(ipolld ipd, int param)
 	ps->num_fd = 0;
 	ps->usr_len = 0;
 	
-	if (ipv_resize(&ps->vresult, 4 * sizeof(struct epoll_event))) 
+	if (ipv_resize(&ps->vresult, 4 * sizeof(struct epoll_event))) {
+		close(ps->epfd);
 		return -2;
+	}
+
 	ps->mresult = (struct epoll_event*)ps->vresult.data;
 	ps->max_fd = 4;
 
@@ -2731,7 +2745,7 @@ static int ipe_poll_del(ipolld ipd, int fd)
 	struct epoll_event ee;
 
 	if (ps->num_fd <= 0) return -1;
-	if (ps->fv.fds[fd].fd <  0) return -2;
+	if (ps->fv.fds[fd].fd < 0) return -2;
 
 	ee.events = 0;
 	ee.data.fd = fd;
@@ -2817,6 +2831,384 @@ static int ipe_poll_event(ipolld ipd, int *fd, int *event, void **user)
 	return 0;
 }
 
+
+#endif
+
+
+/*===================================================================*/
+/* POLL DRIVER - DEVPOLL                                             */
+/*===================================================================*/
+#ifdef IHAVE_DEVPOLL
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/queue.h>
+#include <sys/devpoll.h>
+#include <poll.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+
+
+static int ipu_startup(void);
+static int ipu_shutdown(void);
+static int ipu_init_pd(ipolld ipd, int param);
+static int ipu_destroy_pd(ipolld ipd);
+static int ipu_poll_add(ipolld ipd, int fd, int mask, void *user);
+static int ipu_poll_del(ipolld ipd, int fd);
+static int ipu_poll_set(ipolld ipd, int fd, int mask);
+static int ipu_poll_wait(ipolld ipd, int timeval);
+static int ipu_poll_event(ipolld ipd, int *fd, int *event, void **user);
+
+
+/* devpoll descriptor */
+typedef struct
+{
+	struct IPOLLFV fv;
+	int dpfd;
+	int num_fd;
+	int num_chg;
+	int max_fd;
+	int max_chg;
+	int results;
+	int cur_res;
+	int usr_len;
+	int limit;
+	struct pollfd *mresult;
+	struct pollfd *mchange;
+	struct IPVECTOR vresult;
+	struct IPVECTOR vchange;
+}	IPD_DEVPOLL;
+
+
+/* devpoll driver */
+struct IPOLL_DRIVER IPOLL_DEVPOLL = {
+	sizeof (IPD_DEVPOLL),	
+	IDEVICE_DEVPOLL,
+	100,
+	"DEVPOLL",
+	ipu_startup,
+	ipu_shutdown,
+	ipu_init_pd,
+	ipu_destroy_pd,
+	ipu_poll_add,
+	ipu_poll_del,
+	ipu_poll_set,
+	ipu_poll_wait,
+	ipu_poll_event
+};
+
+
+#ifdef PSTRUCT
+#undef PSTRUCT
+#endif
+
+#define PSTRUCT IPD_DEVPOLL
+
+
+/* grow events */
+static int ipu_grow(PSTRUCT *ps, int size_fd, int size_chg)
+{
+	int r;
+	if (size_fd >= 0) {
+		r = ipv_resize(&ps->vresult, size_fd * sizeof(struct pollfd) * 2);
+		ps->mresult = (struct pollfd*)ps->vresult.data;
+		ps->max_fd = size_fd;
+		if (r) return -1;
+	}
+	if (size_chg >= 0) {
+		r = ipv_resize(&ps->vchange, size_chg * sizeof(struct pollfd));
+		ps->mchange = (struct pollfd*)ps->vchange.data;
+		ps->max_chg= size_chg;
+		if (r) return -2;
+	}
+	return 0;
+}
+
+/* startup devpoll driver */
+static int ipu_startup(void)
+{
+	int fd, flags = O_RDWR;
+#ifdef O_CLOEXEC
+	flags |= O_CLOEXEC;
+#endif
+	fd = open("/dev/poll", flags);
+	if (fd < 0) return -1;
+#if (!defined(O_CLOEXEC)) && defined(FD_CLOEXEC)
+	if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+		close(fd);
+		return -2;
+	}
+#endif
+	close(fd);
+	return 0;
+}
+
+/* shutdown device */
+static int ipu_shutdown(void)
+{
+	return 0;
+}
+
+/* initialize devpoll obj */
+static int ipu_init_pd(ipolld ipd, int param)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int flags = O_RDWR;
+	struct rlimit rl;
+
+#ifdef O_CLOEXEC
+	flags |= O_CLOEXEC;
+#endif
+
+	ps->dpfd = open("/dev/poll", flags);
+	if (ps->dpfd < 0) return -1;
+
+#if (!defined(O_CLOEXEC)) && defined(FD_CLOEXEC)
+	if (fcntl(ps->dpfd, F_SETFD, FD_CLOEXEC) < 0) {
+		close(ps->dpfd);
+		ps->dpfd = -1;
+		return -2;
+	}
+#endif
+
+	ipv_init(&ps->vresult);
+	ipv_init(&ps->vchange);
+
+	ipoll_fvinit(&ps->fv);
+
+	ps->max_fd = 0;
+	ps->num_fd = 0;
+	ps->max_chg = 0;
+	ps->num_chg = 0;
+	ps->usr_len = 0;
+	ps->limit = 32000;
+
+	if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
+		if (rl.rlim_cur != RLIM_INFINITY) {
+			if (rl.rlim_cur < 32000) {
+				ps->limit = rl.rlim_cur;
+			}
+		}
+	}
+	
+	if (ipu_grow(ps, 4, 4)) {
+		ipu_destroy_pd(ipd);
+		return -3;
+	}
+
+	return 0;
+}
+
+/* destroy devpoll obj */
+static int ipu_destroy_pd(ipolld ipd)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	ipv_destroy(&ps->vresult);
+	ipv_destroy(&ps->vchange);
+	ipoll_fvdestroy(&ps->fv);
+
+	if (ps->dpfd >= 0) close(ps->dpfd);
+	ps->dpfd = -1;
+	return 0;
+}
+
+
+/* commit changes */
+static int ipu_changes_apply(ipolld ipd)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int num = ps->num_chg;
+	if (num == 0) return 0;
+	if (pwrite(ps->dpfd, ps->mchange, sizeof(struct pollfd) * num, 0) < 0)
+		return -1;
+	ps->num_chg = 0;
+	return 0;
+}
+
+/* insert new changes */
+static int ipu_changes_push(ipolld ipd, int fd, int events)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	struct pollfd *pfd;
+
+	if (fd >= ps->usr_len) return -1;
+	if (ps->fv.fds[fd].fd < 0) return -2;
+	if (ps->num_chg >= ps->max_chg) {
+		if (ipu_grow(ps, -1, ps->max_chg * 2)) return -3;
+	}
+
+	if (ps->num_chg + 1 >= ps->limit) {
+		if (ipu_changes_apply(ipd) < 0) return -4;
+	}
+
+	pfd = &ps->mchange[ps->num_chg++];
+	memset(pfd, 0, sizeof(struct pollfd));
+
+	pfd->fd = fd;
+	pfd->events = events;
+	pfd->revents = 0;
+
+	return 0;
+}
+
+/* new fd */
+static int ipu_poll_add(ipolld ipd, int fd, int mask, void *user)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int usr_nlen, i, events;
+
+	if (ps->num_fd >= ps->max_fd) {
+		if (ipu_grow(ps, ps->max_fd * 2, -1)) return -1;
+	}
+
+	if (fd >= ps->usr_len) {
+		usr_nlen = fd + 128;
+		ipoll_fvresize(&ps->fv, usr_nlen);
+		for (i = ps->usr_len; i < usr_nlen; i++) {
+			ps->fv.fds[i].fd = -1;
+			ps->fv.fds[i].user = NULL;
+			ps->fv.fds[i].mask = 0;
+		}
+		ps->usr_len = usr_nlen;
+	}
+
+	if (ps->fv.fds[fd].fd >= 0) {
+		ps->fv.fds[fd].user = user;
+		ipu_poll_set(ipd, fd, mask);
+		return 0;
+	}
+
+	events = 0;
+	mask = mask & (IPOLL_IN | IPOLL_OUT | IPOLL_ERR);
+
+	if (mask & IPOLL_IN) events |= POLLIN;
+	if (mask & IPOLL_OUT) events |= POLLOUT;
+	if (mask & IPOLL_ERR) events |= POLLERR;
+
+	ps->fv.fds[fd].fd = fd;
+	ps->fv.fds[fd].user = user;
+	ps->fv.fds[fd].mask = mask & (IPOLL_IN | IPOLL_OUT | IPOLL_ERR);
+
+	if (ipu_changes_push(ipd, fd, events) < 0) {
+		return -2;
+	}
+
+	ps->num_fd++;
+
+	return 0;
+}
+
+/* delete fd */
+static int ipu_poll_del(ipolld ipd, int fd)
+{
+	PSTRUCT *ps = PDESC(ipd);
+
+	if (ps->num_fd <= 0) return -1;
+	if (ps->fv.fds[fd].fd < 0) return -2;
+	
+	ipu_changes_push(ipd, fd, POLLREMOVE);
+
+	ps->num_fd--;
+	ps->fv.fds[fd].fd = -1;
+	ps->fv.fds[fd].user = NULL;
+	ps->fv.fds[fd].mask = 0;
+
+	ipu_changes_apply(ipd);
+
+	return 0;
+}
+
+
+/* set fd mask */
+static int ipu_poll_set(ipolld ipd, int fd, int mask)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int events = 0;
+	int retval;
+	int save;
+
+	if (fd >= ps->usr_len) return -1;
+	if (ps->fv.fds[fd].fd < 0) return -2;
+
+	save = ps->fv.fds[fd].mask;
+	mask =  mask & (IPOLL_IN | IPOLL_OUT | IPOLL_ERR);
+
+	if ((save & mask) != save) 
+		ipu_changes_push(ipd, fd, POLLREMOVE);
+
+	ps->fv.fds[fd].mask = mask;
+
+	if (mask & IPOLL_IN) events |= POLLIN;
+	if (mask & IPOLL_OUT) events |= POLLOUT;
+	if (mask & IPOLL_ERR) events |= POLLERR;
+
+	retval = ipu_changes_push(ipd, fd, events);
+
+	return retval;
+}
+
+/* wait events */
+static int ipu_poll_wait(ipolld ipd, int timeval)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	struct dvpoll dvp;
+	int retval;
+
+	if (ps->num_chg) {
+		ipu_changes_apply(ipd);
+	}
+
+	dvp.dp_fds = ps->mresult;
+	dvp.dp_nfds = ps->max_fd * 2;
+	dvp.dp_timeout = timeval;
+
+	if (dvp.dp_nfds > ps->limit) {
+		dvp.dp_nfds = ps->limit;
+	}
+
+	retval = ioctl(ps->dpfd, DP_POLL, &dvp);
+
+	if (retval < 0) {
+		if (errno != EINTR) {
+			return -1;
+		}
+		return 0;
+	}
+
+	ps->results = retval;
+	ps->cur_res = 0;
+
+	return ps->results;
+}
+
+
+/* query next event */
+static int ipu_poll_event(ipolld ipd, int *fd, int *event, void **user)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int revents, eventx = 0, n;
+	struct pollfd *pfd;
+	if (ps->results <= 0) return -1;
+	if (ps->cur_res >= ps->results) return -2;
+	pfd = &ps->mresult[ps->cur_res++];
+
+	revents = pfd->revents;
+	if (revents & POLLIN) eventx |= IPOLL_IN;
+	if (revents & POLLOUT)eventx |= IPOLL_OUT;
+	if (revents & POLLERR)eventx |= IPOLL_ERR;
+
+	n = pfd->fd;
+	if (ps->fv.fds[n].fd < 0) eventx = 0;
+	eventx &= ps->fv.fds[n].mask;
+
+	if (fd) *fd = n;
+	if (event) *event = eventx;
+	if (user) *user = ps->fv.fds[n].user;
+
+	return 0;
+}
 
 #endif
 
