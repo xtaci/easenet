@@ -4753,7 +4753,9 @@ iPosixTimer *iposix_timer_new(void)
 #ifdef _WIN32
 	timer->id = 0;
 	timer->event = NULL;
-	#if 1
+	/* disable timeSetEvent here, in windows you can only create at most
+	   16 events(timeSetEvent) per process in the same time. */
+	#if 0
 	timer->event = CreateEvent(NULL, FALSE, FALSE, NULL);
 	if (timer->event == NULL) {
 		iposix_timer_delete(timer);
