@@ -149,6 +149,7 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->rx_rttval = 0;
 	kcp->rx_rto = IKCP_RTO_DEF;
 	kcp->rx_minrto = IKCP_RTO_MIN;
+	kcp->rx_rtt = 0;
 	kcp->current = 0;
 	kcp->interval = IKCP_INTERVAL;
 	kcp->ts_flush = IKCP_INTERVAL;
@@ -388,6 +389,7 @@ static void ikcp_update_ack(ikcpcb *kcp, IINT32 rtt)
 	}
 	rto = kcp->rx_srtt + _imax(1, 4 * kcp->rx_rttval);
 	kcp->rx_rto = _ibound(kcp->rx_minrto, rto, IKCP_RTO_MAX);
+	kcp->rx_rtt = (IUINT32)rtt;
 }
 
 static void ikcp_shrink_buf(ikcpcb *kcp)
