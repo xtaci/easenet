@@ -47,6 +47,7 @@
 #include "inetcode.h"
 #include "ineturl.h"
 #include "iposix.h"
+#include "itoolbox.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -943,6 +944,13 @@ protected:
 
 //---------------------------------------------------------------------
 // 异步网络管理
+// 管理连进来以及连出去的套接字并且可以管理多个listen的套接字，以hid
+// 管理，如果要新建立一个监听套接字，则调用 new_listen(ip, port, head)
+// 则会返回监听套接字的hid，紧接着收到监听套接字的 NEW消息。然后如果
+// 该监听端口上有其他连接连入，则会收到其他连接的 NEW消息。
+// 如要建立一个连出去的连接，则调用 new_connect(ip, port, head)，返回
+// 该连接的 hid，并且紧接着收到 NEW消息，如果连接成功会进一步有 ESTAB
+// 消息，否则，将会收到 LEAVE消息。
 //---------------------------------------------------------------------
 class AsyncCore
 {
@@ -963,108 +971,141 @@ public:
 		_lock = NULL;
 	}
 
+	// 等待事件，millisec为等待的毫秒时间，0表示不等待
+	// 一般要先调用 wait，然后持续调用 read取得消息，直到没有消息了
 	void wait(IUINT32 millisec) {
 		CriticalScope scope(*_lock);
 		async_core_process(_core, millisec);
 	}
 
+	// 读取消息，返回消息长度 
+	// 如果没有消息，返回-1
+	// event的值为： ASYNC_CORE_EVT_NEW/LEAVE/ESTAB/DATA等
+	// event=ASYNC_CORE_EVT_NEW:   连接新建 wparam=hid(连接编号), lparam=listen_hid
+	// event=ASYNC_CORE_EVT_LEAVE: 连接断开 wparam=hid, lparam=tag
+	// event=ASYNC_CORE_EVT_ESTAB: 连接成功 wparam=hid, lparam=tag (仅用于 new_connect)
+	// event=ASYNC_CORE_EVT_DATA:  收到数据 wparam=hid, lparam=tag
+	// 普通用法：循环调用，没有消息可读时，调用一次wait去
 	long read(int *event, long *wparam, long *lparam, void *data, long maxsize) {
 		CriticalScope scope(*_lock);
 		return async_core_read(_core, event, wparam, lparam, data, maxsize);
 	}
 
+	// 向某连接发送数据，hid为连接标识
 	long send(long hid, const void *data, long size) {
 		CriticalScope scope(*_lock);
 		return async_core_send(_core, hid, data, size);
 	}
 
+	// 关闭连接，只要连接断开不管主动断开还是被close接口断开，都会收到 leave
 	int close(long hid, int code) {
 		CriticalScope scope(*_lock);
 		return async_core_close(_core, hid, code);
 	}
 
+	// 发送矢量：免得多次 memcpy
 	long send(long hid, const void *vecptr[], long veclen[], int count, int mask = 0) {
 		CriticalScope scope(*_lock);
 		return async_core_send_vector(_core, hid, vecptr, veclen, count, mask);
 	}
 
+	// 建立一个新的对外连接，返回 hid，错误返回 <0
 	long new_connect(const char *ip, int port, int header = 0) {
 		CriticalScope scope(*_lock);
 		SockAddress remote(ip, port);
 		return async_core_new_connect(_core, remote.address(), 0, header);
 	}
 
+	// 建立一个新的监听连接，返回 hid，错误返回 <0 (-2为端口倍占用)
 	long new_listen(const char *ip, int port, int header = 0) {
 		CriticalScope scope(*_lock);
 		SockAddress remote(ip, port);
 		return async_core_new_listen(_core, remote.address(), 0, header);
 	}
 
+	// 建立一个新的连接，fd为已经连接的 socket
 	long new_assign(int fd, int header = 0, bool check_estab = true) {
 		CriticalScope scope(*_lock);
 		return async_core_new_assign(_core, fd, header, check_estab? 1 : 0);
 	}
 
+	// 取得连接类型：ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN
 	long get_mode(long hid) const {
 		CriticalScope scope(*_lock);
 		return async_core_get_mode(_core, hid);
 	}
 
+	// 取得 tag
 	long get_tag(long hid) const {
 		CriticalScope scope(*_lock);
 		return async_core_get_tag(_core, hid);
 	}
 
+	// 设置 tag
 	void set_tag(long hid, long tag) {
 		CriticalScope scope(*_lock);
 		async_core_set_tag(_core, hid, tag);
 	}
 
+	// 取得某连接的待发送缓存(应用层)中的待发送数据大小
+	// 用来判断某连接数据是不是发不出去积累太多了(网络拥塞或者远方不接收)
 	long remain(long hid) const {
 		CriticalScope scope(*_lock);
 		return async_core_remain(_core, hid);
 	}
 
+	// 设置缓存控制参数，limited是带发送缓存(remain)超过多少就断开该连接，
+	// 如果远端不接收，或者网络拥塞，这里又一直给它发送数据，则remain越来越大
+	// 超过该值后，系统就要主动踢掉该连接，认为它丧失处理能力了。
+	// maxsize是单个数据包的最大大小，默认是2MB。超过该大小认为非法。
 	void set_limit(long buffer_limit, long max_pkt_size) {
 		CriticalScope scope(*_lock);
 		async_core_limit(_core, buffer_limit, max_pkt_size);
 	}
 
+	// 第一个节点
 	long node_head() const {
 		CriticalScope scope(*_lock);
 		return async_core_node_head(_core);
 	}
 
+	// 下一个节点
 	long node_next(long hid) const {
 		CriticalScope scope(*_lock);
 		return async_core_node_next(_core, hid);
 	}
 
+	// 上一个节点
 	long node_prev(long hid) const {
 		CriticalScope scope(*_lock);
 		return async_core_node_prev(_core, hid);
 	}
 
+	// 配置信息
 	int option(long hid, int opt, long value) {
 		CriticalScope scope(*_lock);
 		return async_core_option(_core, hid, opt, value);
 	}
 
+	// 设置超时
 	void set_timeout(long seconds) {
 		CriticalScope scope(*_lock);
 		async_core_timeout(_core, seconds);
 	}
 
+	// 禁止接收某连接数据（打开后连断开都无法检测到，最好设置超时）
 	int disable(long hid, bool value) {
 		CriticalScope scope(*_lock);
 		return async_core_disable(_core, hid, value? 1 : 0);
 	}
 
+	// 设置防火墙：定义见 inetcode.h 的 CAsyncValidator
 	void set_firewall(CAsyncValidator validator, void *user) {
 		CriticalScope scope(*_lock);
 		async_core_firewall(_core, validator, user);
 	}
 
+	// 取得套接字本地地址
 	int sockname(long hid, struct sockaddr *addr, int *addrlen = NULL) {
 		CriticalScope scope(*_lock);
 		int size = 0;
@@ -1072,6 +1113,7 @@ public:
 		return async_core_sockname(_core, hid, addr, addrlen);
 	}
 
+	// 取得套接字远端地址
 	int peername(long hid, struct sockaddr *addr, int *addrlen = NULL) {
 		CriticalScope scope(*_lock);
 		int size = 0;
@@ -1079,16 +1121,19 @@ public:
 		return async_core_peername(_core, hid, addr, addrlen);
 	}
 
+	// 设置 RC4加密：发送端
 	void rc4_set_skey(long hid, const unsigned char *key, int len) {
 		CriticalScope scope(*_lock);
 		async_core_rc4_set_skey(_core, hid, key, len);
 	}
 
+	// 设置 RC4解密：接收端
 	void rc4_set_rkey(long hid, const unsigned char *key, int len) {
 		CriticalScope scope(*_lock);
 		async_core_rc4_set_rkey(_core, hid, key, len);
 	}
 
+	// 得到有多少个连接
 	long nfds() const {
 		CriticalScope scope(*_lock);
 		return async_core_nfds(_core);
