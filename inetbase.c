@@ -3476,7 +3476,7 @@ static int iposix_cond_posix_sleep_cs_time(iConditionVariablePosix *cond,
 		struct timespec ts;
 		int res;
 	#if (!defined(__imac__)) && (!defined(ITIME_USE_GET_TIME_OF_DAY))
-		#ifdef ICLOCK_TYPE_REALTIME
+		#if defined(ICLOCK_TYPE_REALTIME) || defined(__ANDROID__)
 		clock_gettime(CLOCK_REALTIME, &ts);
 		#else
 		clock_gettime(CLOCK_MONOTONIC, &ts);
