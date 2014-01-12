@@ -3430,7 +3430,7 @@ typedef struct
 static int iposix_cond_posix_init(iConditionVariablePosix *cond)
 {
 	int result;
-#ifdef ICLOCK_TYPE_REALTIME
+#if defined(ICLOCK_TYPE_REALTIME) || defined(__imac__)
 	result = pthread_cond_init(&cond->cond, NULL);
 #else
 	pthread_condattr_t condAttr;
