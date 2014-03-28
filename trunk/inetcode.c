@@ -1400,7 +1400,7 @@ long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr,
 {
 	CAsyncSock *sock;
 	int fd, ipv6 = 0;
-	int hr;
+	int hr, flag = 0;
 	long hid;
 
 	if (addrlen >= (int)sizeof(struct sockaddr_in6)) {
@@ -1418,6 +1418,12 @@ long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr,
 		ipv6 = 0;
 	}
 	if (fd < 0) return -1;
+
+	flag = (header >> 8) & 0xff;
+
+	if (flag & ISOCK_REUSEADDR) {
+		ienable(fd, ISOCK_REUSEADDR);		
+	}
 
 	if (ibind(fd, addr, addrlen) != 0) {
 		iclose(fd);
@@ -1453,7 +1459,7 @@ long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr,
 		iqueue_init(&sock->node);
 	}
 
-	sock->header = header;
+	sock->header = header & 0xff;
 
 	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
 		-1, addr, addrlen);
