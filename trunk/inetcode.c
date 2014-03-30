@@ -213,6 +213,7 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->ipv6 = 0;
 	asyncsock->mask = 0;
 	asyncsock->error = 0;
+	asyncsock->flags = 0;
 	iqueue_init(&asyncsock->node);
 	ims_init(&asyncsock->sendmsg, nodes, 0, 0);
 	ims_init(&asyncsock->recvmsg, nodes, 0, 0);
@@ -827,6 +828,12 @@ struct CAsyncCore
 
 
 //---------------------------------------------------------------------
+// async core definition
+//---------------------------------------------------------------------
+#define ASYNC_CORE_FLAG_PROGRESS	1
+
+
+//---------------------------------------------------------------------
 // new async core
 //---------------------------------------------------------------------
 CAsyncCore* async_core_new(void)
@@ -970,6 +977,7 @@ static long async_core_node_new(CAsyncCore *core)
 	sock->time = core->current;
 	sock->maxsize = core->maxsize;
 	sock->limited = core->limited;
+	sock->flags = 0;
 	iqueue_add_tail(&sock->node, &core->head);
 
 	core->count++;
@@ -1144,6 +1152,7 @@ static long async_core_msg_read(CAsyncCore *core, int *event, long *wparam,
 	return length;
 }
 
+
 //---------------------------------------------------------------------
 // resize buffer
 //---------------------------------------------------------------------
@@ -1309,6 +1318,7 @@ long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
 
 	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_IN | IPOLL_ERR, 0);
 	sock->mode = ASYNC_CORE_NODE_OUT;
+	sock->flags = 0;
 
 	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
 		0, addr, addrlen);
@@ -1591,6 +1601,10 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			if (sock->sendmsg.size == 0 && sock->fd >= 0 && !needclose) {
 				if (sock->mask & IPOLL_OUT) {
 					async_core_node_mask(core, sock, 0, IPOLL_OUT);
+					if (sock->flags & ASYNC_CORE_FLAG_PROGRESS) {
+						async_core_msg_push(core, ASYNC_CORE_EVT_PROGRESS,
+							sock->hid, sock->tag, core->buffer, 0);
+					}
 				}
 			}
 		}
@@ -1762,6 +1776,13 @@ int async_core_option(CAsyncCore *core, long hid, int opt, long value)
 	case ASYNC_CORE_OPTION_LIMITED:
 		sock->limited = value;
 		hr = 0;
+		break;
+	case ASYNC_CORE_OPTION_PROGRESS:
+		if (value) {
+			sock->flags |= ASYNC_CORE_FLAG_PROGRESS;
+		}	else {
+			sock->flags &= ~ASYNC_CORE_FLAG_PROGRESS;
+		}
 		break;
 	}
 	return hr;

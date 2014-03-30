@@ -65,6 +65,7 @@ struct CAsyncSock
 	int mask;						// poll event mask
 	int mode;						// socket mode
 	int ipv6;						// 0:ipv4, 1:ipv6
+	int flags;						// flag bits
 	char *buffer;					// internal working buffer
 	char *external;					// external working buffer
 	long bufsize;					// working buffer size
@@ -191,6 +192,7 @@ typedef struct CAsyncCore CAsyncCore;
 #define ASYNC_CORE_EVT_LEAVE	1	// leave: (hid, tag)
 #define ASYNC_CORE_EVT_ESTAB	2	// estab: (hid, tag)
 #define ASYNC_CORE_EVT_DATA		3	// data: (hid, tag)
+#define ASYNC_CORE_EVT_PROGRESS	4	// output progress: (hid, tag)
 
 #define ASYNC_CORE_NODE_IN			1		// accepted node
 #define ASYNC_CORE_NODE_OUT			2		// connected out node
@@ -216,6 +218,7 @@ void async_core_process(CAsyncCore *core, IUINT32 millisec);
 
 // read events, returns data length of the message, 
 // and returns -1 for no event, -2 for buffer size too small,
+// returns data size when data equals NULL.
 long async_core_read(CAsyncCore *core, int *event, long *wparam,
 	long *lparam, void *data, long size);
 
@@ -280,6 +283,7 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_SYSRCVBUF		5
 #define ASYNC_CORE_OPTION_LIMITED		6
 #define ASYNC_CORE_OPTION_MAXSIZE		7
+#define ASYNC_CORE_OPTION_PROGRESS		8
 
 // set connection socket option
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);
