@@ -11,6 +11,7 @@
 // ConditionVariable 条件变量，跨平台的 pthread_cond_t
 // EventPosix        事件，跨平台的 Win32 Event
 // ReadWriteLock     读写锁
+// ConditionLock     条件变量简易版，相当于 cond + mutex
 //
 // Thread            线程控制对象
 // Clock             用于读取的时钟
@@ -274,6 +275,32 @@ public:
 
 protected:
 	iRwLockPosix *_rwlock;
+};
+
+
+//---------------------------------------------------------------------
+// 条件锁：相当于 ConditionVariable + CriticalSection
+//---------------------------------------------------------------------
+class ConditionLock
+{
+public:
+
+	// 唤醒所有等待进程
+	void notify(bool all = false) { if (!all) _cond.wake(); else _cond.wake_all(); }
+
+	// 等待若干毫秒，成功返回 true
+	bool wait(unsigned long millisec) { return _cond.sleep(_lock, millisec); }
+	bool wait() { return _cond.sleep(_lock); }
+
+	// 进入临界区
+	void acquire() { _lock.enter(); }
+
+	// 释放临界区
+	void release() { _lock.leave(); }
+
+private:
+	ConditionVariable _cond;
+	CriticalSection _lock;
 };
 
 
@@ -985,6 +1012,7 @@ public:
 	// event=ASYNC_CORE_EVT_LEAVE: 连接断开 wparam=hid, lparam=tag
 	// event=ASYNC_CORE_EVT_ESTAB: 连接成功 wparam=hid, lparam=tag (仅用于 new_connect)
 	// event=ASYNC_CORE_EVT_DATA:  收到数据 wparam=hid, lparam=tag
+	// event=ASYNC_CORE_EVT_PROGRESS: 成功发送完待发送数据 wparam=hid, lparam=tag
 	// 普通用法：循环调用，没有消息可读时，调用一次wait去
 	long read(int *event, long *wparam, long *lparam, void *data, long maxsize) {
 		CriticalScope scope(*_lock);
@@ -1017,9 +1045,10 @@ public:
 	}
 
 	// 建立一个新的监听连接，返回 hid，错误返回 <0 (-2为端口倍占用)
-	long new_listen(const char *ip, int port, int header = 0) {
+	long new_listen(const char *ip, int port, int header = 0, bool reuse = false) {
 		CriticalScope scope(*_lock);
 		SockAddress remote(ip, port);
+		if (reuse) header |= 0x200;
 		return async_core_new_listen(_core, remote.address(), 0, header);
 	}
 
@@ -2056,7 +2085,7 @@ static inline void StringUpper(std::string &s) {
 
 static inline void StringLower(std::string &s) {
 	for (size_t i = 0; i < s.size(); i++) {
-		if (s[i] >= 'A' && s[i] <= 'A') s[i] += 'a' - 'A';
+		if (s[i] >= 'A' && s[i] <= 'Z') s[i] += 'a' - 'A';
 	}
 }
 
