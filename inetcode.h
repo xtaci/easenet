@@ -76,6 +76,7 @@ struct CAsyncSock
 	int rc4_recv_x;					// rc4 encryption variable 
 	int rc4_recv_y;					// rc4 encryption variable 
 	struct IQUEUEHEAD node;			// list node
+	struct IMSTREAM linemsg;		// line buffer
 	struct IMSTREAM sendmsg;		// send buffer
 	struct IMSTREAM recvmsg;		// recv buffer
 	unsigned char rc4_send_box[256];	
@@ -97,6 +98,8 @@ struct CAsyncSock
 #define ITMH_EBYTELSB		10		// header: 1 byte LSB (exclude self)
 #define ITMH_EBYTEMSB		11		// header: 1 byte MSB (exclude self)
 #define ITMH_DWORDMASK		12		// header: 4 bytes LSB (self and mask)
+#define ITMH_RAWDATA		13		// header: raw data
+#define ITMH_LINESPLIT		14		// header: '\n' split
 #endif
 
 #define ASYNC_SOCK_STATE_CLOSED			0
