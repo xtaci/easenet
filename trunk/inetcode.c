@@ -215,6 +215,7 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->error = 0;
 	asyncsock->flags = 0;
 	iqueue_init(&asyncsock->node);
+	ims_init(&asyncsock->linemsg, nodes, 0, 0);
 	ims_init(&asyncsock->sendmsg, nodes, 0, 0);
 	ims_init(&asyncsock->recvmsg, nodes, 0, 0);
 }
@@ -242,6 +243,7 @@ void async_sock_destroy(CAsyncSock *asyncsock)
 	asyncsock->error = 0;
 	asyncsock->buffer = NULL;
 	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
+	ims_destroy(&asyncsock->linemsg);
 	ims_destroy(&asyncsock->sendmsg);
 	ims_destroy(&asyncsock->recvmsg);
 	asyncsock->rc4_send_x = -1;
@@ -259,9 +261,10 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 
 	asyncsock->fd = -1;
 	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
-	asyncsock->header = (header < 0 || header > 13)? 0 : header;
+	asyncsock->header = (header < 0 || header > ITMH_LINESPLIT)? 0 : header;
 	asyncsock->error = 0;
 
+	ims_clear(&asyncsock->linemsg);
 	ims_clear(&asyncsock->sendmsg);
 	ims_clear(&asyncsock->recvmsg);
 
@@ -324,7 +327,7 @@ int async_sock_assign(CAsyncSock *asyncsock, int sock, int header)
 {
 	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
 	asyncsock->fd = -1;
-	asyncsock->header = (header < 0 || header > 13)? 0 : header;
+	asyncsock->header = (header < 0 || header > ITMH_LINESPLIT)? 0 : header;
 
 	if (asyncsock->buffer == NULL) {
 		if (asyncsock->external == NULL) {
@@ -341,6 +344,7 @@ int async_sock_assign(CAsyncSock *asyncsock, int sock, int header)
 	asyncsock->rc4_recv_x = -1;
 	asyncsock->rc4_recv_y = -1;
 
+	ims_clear(&asyncsock->linemsg);
 	ims_clear(&asyncsock->sendmsg);
 	ims_clear(&asyncsock->recvmsg);
 
@@ -441,7 +445,32 @@ static int async_sock_try_recv(CAsyncSock *asyncsock)
 			icrypt_rc4_crypt(asyncsock->rc4_recv_box, &asyncsock->rc4_recv_x,
 				&asyncsock->rc4_recv_y, buffer, buffer, retval);
 		}
-		ims_write(&asyncsock->recvmsg, buffer, retval);
+		if (asyncsock->header != ITMH_LINESPLIT) {
+			ims_write(&asyncsock->recvmsg, buffer, retval);
+		}	else {
+			long start = 0, pos = 0;
+			char head[4];
+			for (start = 0, pos = 0; pos < retval; pos++) {
+				if (buffer[pos] == '\n') {
+					long x = pos - start + 1;
+					long y = asyncsock->linemsg.size;
+					iencode32u_lsb(head, x + y + 4);
+					ims_write(&asyncsock->recvmsg, head, 4);
+					while (asyncsock->linemsg.size > 0) {
+						ilong csize;
+						void *ptr;
+						csize = ims_flat(&asyncsock->linemsg, &ptr);
+						ims_write(&asyncsock->recvmsg, ptr, csize);
+						ims_drop(&asyncsock->linemsg, csize);
+					}
+					ims_write(&asyncsock->recvmsg, &buffer[start], x);
+					start = pos + 1;
+				}
+			}
+			if (pos > start) {
+				ims_write(&asyncsock->linemsg, &buffer[start], pos - start);
+			}
+		}
 		if (retval < bufsize) break;
 	}
 	return 0;
@@ -475,7 +504,7 @@ void async_sock_process(CAsyncSock *asyncsock)
 				async_sock_close(asyncsock);
 				return;
 			}
-		}	
+		}
 		if (asyncsock->state == ASYNC_SOCK_STATE_ESTAB) {
 			if (async_sock_try_send(asyncsock) != 0) {
 				async_sock_close(asyncsock);
@@ -509,12 +538,12 @@ long async_sock_remain(const CAsyncSock *asyncsock)
 
 
 // header size
-static const int async_sock_head_len[14] = 
-	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4, 0 };
+static const int async_sock_head_len[15] = 
+	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4, 0, 4 };
 
 // header increasement
-static const int async_sock_head_inc[14] = 
-	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0, 0 };
+static const int async_sock_head_inc[15] = 
+	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0, 0, 0 };
 
 // peek size
 static inline IUINT32
@@ -534,7 +563,7 @@ async_sock_read_size(const CAsyncSock *asyncsock)
 	hdrlen = async_sock_head_len[asyncsock->header];
 	hdrinc = async_sock_head_inc[asyncsock->header];
 
-	if (asyncsock->header == 13) {
+	if (asyncsock->header == ITMH_RAWDATA) {
 		len = (unsigned long)asyncsock->recvmsg.size;
 		if (len > ASYNC_SOCK_BUFSIZE) return ASYNC_SOCK_BUFSIZE;
 		return (long)len;
@@ -543,11 +572,11 @@ async_sock_read_size(const CAsyncSock *asyncsock)
 	len = (unsigned short)ims_peek(&asyncsock->recvmsg, dsize, hdrlen);
 	if (len < (unsigned long)hdrlen) return 0;
 
-	if (asyncsock->header != ITMH_DWORDMASK) {
+	if (asyncsock->header <= ITMH_EBYTEMSB) {
 		header = (asyncsock->header < 6)? 
 			asyncsock->header : asyncsock->header - 6;
 	}	else {
-		header = ITMH_DWORDLSB;
+		header = asyncsock->header;
 	}
 
 	switch (header) {
@@ -561,7 +590,6 @@ async_sock_read_size(const CAsyncSock *asyncsock)
 		break;
 	case ITMH_DWORDLSB:
 		idecode32u_lsb((char*)dsize, &len32);
-		if (asyncsock->header == ITMH_DWORDMASK) len32 &= 0xffffff;
 		len = len32;
 		break;
 	case ITMH_DWORDMSB:
@@ -575,6 +603,14 @@ async_sock_read_size(const CAsyncSock *asyncsock)
 	case ITMH_BYTEMSB:
 		idecode8u((char*)dsize, &len8);
 		len = len8;
+		break;
+	case ITMH_DWORDMASK:
+		idecode32u_lsb((char*)dsize, &len32);
+		len = len32 & 0xffffff;
+		break;
+	case ITMH_LINESPLIT:
+		idecode32u_lsb((char*)dsize, &len32);
+		len = len32;
 		break;
 	}
 
@@ -594,7 +630,7 @@ async_sock_write_size(const CAsyncSock *asyncsock, long size,
 
 	assert(asyncsock);
 
-	if (asyncsock->header == 13) return 0;
+	if (asyncsock->header >= ITMH_RAWDATA) return 0;
 
 	hdrlen = async_sock_head_len[asyncsock->header];
 	hdrinc = async_sock_head_inc[asyncsock->header];
@@ -1671,6 +1707,9 @@ int async_core_close(CAsyncCore *core, long hid, int code)
 {
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	if (sock == NULL) return -1;
+	if (sock->sendmsg.size > 0) {
+		async_sock_update(sock, 2);
+	}
 	async_core_event_close(core, sock, code);
 	return 0;
 }
