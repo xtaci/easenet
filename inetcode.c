@@ -856,6 +856,10 @@ struct CAsyncCore
 	long msgcnt;
 	long count;
 	long index;
+	int xfd[3];
+	int nolock;
+	IMUTEX_TYPE lock;
+	IMUTEX_TYPE xmtx;
 	IUINT32 current;
 	IUINT32 lastsec;
 	IUINT32 timeout;
@@ -866,13 +870,30 @@ struct CAsyncCore
 //---------------------------------------------------------------------
 // async core definition
 //---------------------------------------------------------------------
+#define ASYNC_CORE_PIPE_READ		0
+#define ASYNC_CORE_PIPE_WRITE		1
+#define ASYNC_CORE_PIPE_FLAG		2
+
 #define ASYNC_CORE_FLAG_PROGRESS	1
 
+// used to monitor self-pipe trick
+static unsigned int async_core_monitor = 0; 
+
+#define ASYNC_CORE_CRITICAL_BEGIN(c)	\
+    do { if ((c)->nolock == 0) IMUTEX_LOCK(&((c)->lock)); } while (0)
+
+#define ASYNC_CORE_CRITICAL_END(c)	\
+    do { if ((c)->nolock == 0) IMUTEX_UNLOCK(&((c)->lock)); } while (0)
+
+
+static long _async_core_node_head(const CAsyncCore *core);
+static long _async_core_node_next(const CAsyncCore *core, long hid);
+static long _async_core_node_prev(const CAsyncCore *core, long hid);
 
 //---------------------------------------------------------------------
 // new async core
 //---------------------------------------------------------------------
-CAsyncCore* async_core_new(void)
+CAsyncCore* async_core_new(int flags)
 {
 	CAsyncCore *core;
 
@@ -936,6 +957,50 @@ CAsyncCore* async_core_new(void)
 	core->maxsize = ASYNC_SOCK_MAXSIZE;
 	core->limited = 0;
 
+	core->xfd[0] = -1;
+	core->xfd[1] = -1;
+	core->xfd[2] = 0;
+
+	IMUTEX_INIT(&core->lock);
+	IMUTEX_INIT(&core->xmtx);
+	
+	core->nolock = ((flags & 1) == 0)? 0 : 1;
+
+	// self-pipe trick
+	if ((flags & 2) == 0) {
+	#ifdef __unix
+		#ifndef __AVM2__
+		pipe(core->xfd);
+		ienable(core->xfd[0], ISOCK_NOBLOCK);
+		ienable(core->xfd[1], ISOCK_NOBLOCK);
+		#endif
+	#else
+		if (inet_socketpair(core->xfd) != 0) {
+			int ok = 0, i;
+			for (i = 0; i < 15; i++) {
+				isleep(10);
+				if (inet_socketpair(core->xfd) == 0) {
+					ok = 1;
+					break;
+				}
+			}
+			if (ok == 0) {
+				core->xfd[0] = -1;
+				core->xfd[1] = -1;
+			}
+		}
+		if (core->xfd[0] >= 0) {
+			ikeepalive(core->xfd[0], 50, 300, 10);
+			ikeepalive(core->xfd[1], 50, 300, 10);
+		}
+	#endif
+		core->xfd[ASYNC_CORE_PIPE_FLAG] = 0;
+		if (core->xfd[ASYNC_CORE_PIPE_READ] >= 0) {
+			int fd = core->xfd[ASYNC_CORE_PIPE_READ];
+			ipoll_add(core->pfd, fd, IPOLL_IN | IPOLL_ERR, core);
+		}
+	}
+
 	return core;
 }
 
@@ -948,8 +1013,9 @@ static long async_core_node_delete(CAsyncCore *core, long hid);
 void async_core_delete(CAsyncCore *core)
 {
 	if (core == NULL) return;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
 	while (1) {
-		long hid = async_core_node_head(core);
+		long hid = _async_core_node_head(core);
 		if (hid < 0) break;
 		async_core_node_delete(core, hid);
 	}
@@ -973,6 +1039,21 @@ void async_core_delete(CAsyncCore *core)
 	core->cache = NULL;
 	core->data = NULL;
 	iqueue_init(&core->head);
+#ifdef __unix
+	#ifndef __AVM2__
+	if (core->xfd[0] >= 0) close(core->xfd[0]);
+	if (core->xfd[1] >= 0) close(core->xfd[1]);
+	#endif
+#else
+	if (core->xfd[0] >= 0) iclose(core->xfd[0]);
+	if (core->xfd[1] >= 0) iclose(core->xfd[1]);
+#endif
+	core->xfd[0] = -1;
+	core->xfd[1] = -1;
+	core->xfd[2] = 0;
+	ASYNC_CORE_CRITICAL_END(core);
+	IMUTEX_DESTROY(&core->xmtx);
+	IMUTEX_DESTROY(&core->lock);
 	memset(core, 0, sizeof(CAsyncCore));
 	ikmem_free(core);
 }
@@ -1091,7 +1172,7 @@ static int async_core_node_active(CAsyncCore *core, long hid)
 //---------------------------------------------------------------------
 // first node
 //---------------------------------------------------------------------
-long async_core_node_head(const CAsyncCore *core)
+static long _async_core_node_head(const CAsyncCore *core)
 {
 	const CAsyncSock *sock = NULL;
 	long index = imnode_head(core->nodes);
@@ -1103,7 +1184,7 @@ long async_core_node_head(const CAsyncCore *core)
 //---------------------------------------------------------------------
 // next node
 //---------------------------------------------------------------------
-long async_core_node_next(const CAsyncCore *core, long hid)
+static long _async_core_node_next(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock = async_core_node_get_const(core, hid);
 	long index = hid & 0xffff;
@@ -1121,7 +1202,7 @@ long async_core_node_next(const CAsyncCore *core, long hid)
 //---------------------------------------------------------------------
 // prev node
 //---------------------------------------------------------------------
-long async_core_node_prev(const CAsyncCore *core, long hid)
+static long _async_core_node_prev(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock = async_core_node_get_const(core, hid);
 	long index = hid & 0xffff;
@@ -1136,6 +1217,40 @@ long async_core_node_prev(const CAsyncCore *core, long hid)
 	return sock->hid;
 }
 
+
+//---------------------------------------------------------------------
+// thread safe iterator
+//---------------------------------------------------------------------
+long async_core_node_head(const CAsyncCore *core)
+{
+	long hid;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hid = _async_core_node_head(core);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hid;
+}
+
+//---------------------------------------------------------------------
+// thread safe iterator
+//---------------------------------------------------------------------
+long async_core_node_next(const CAsyncCore *core, long hid)
+{
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hid = _async_core_node_next(core, hid);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hid;
+}
+
+//---------------------------------------------------------------------
+// thread safe iterator
+//---------------------------------------------------------------------
+long async_core_node_prev(const CAsyncCore *core, long hid)
+{
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hid = _async_core_node_prev(core, hid);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hid;
+}
 
 //---------------------------------------------------------------------
 // post message
@@ -1206,7 +1321,7 @@ static int async_core_buffer_resize(CAsyncCore *core, long newsize)
 	core->buffer = core->data + newsize + 64;
 	core->bufsize = newsize;
 
-	hid = async_core_node_head(core);
+	hid = _async_core_node_head(core);
 
 	while (hid >= 0) {
 		CAsyncSock *sock = async_core_node_get(core, hid);
@@ -1214,7 +1329,7 @@ static int async_core_buffer_resize(CAsyncCore *core, long newsize)
 		sock->external = core->buffer;
 		sock->buffer = core->buffer;
 		sock->bufsize = core->bufsize;
-		hid = async_core_node_next(core, hid);
+		hid = _async_core_node_next(core, hid);
 	}
 
 	return 0;
@@ -1323,8 +1438,8 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 //---------------------------------------------------------------------
 // new connection to the target address, returns hid
 //---------------------------------------------------------------------
-long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
-	int addrlen, int header)
+static long _async_core_new_connect(CAsyncCore *core, 
+	const struct sockaddr *addr, int addrlen, int header)
 {
 	CAsyncSock *sock;
 	long hid;
@@ -1366,7 +1481,8 @@ long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
 //---------------------------------------------------------------------
 // new assign to a existing socket, returns hid
 //---------------------------------------------------------------------
-long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
+static long _async_core_new_assign(CAsyncCore *core, int fd, 
+	int header, int estab)
 {
 	CAsyncSock *sock;
 	long hid;
@@ -1441,8 +1557,8 @@ long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab)
 //---------------------------------------------------------------------
 // new listener, returns hid
 //---------------------------------------------------------------------
-long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr, 
-	int addrlen, int header)
+static long _async_core_new_listen(CAsyncCore *core, 
+	const struct sockaddr *addr, int addrlen, int header)
 {
 	CAsyncSock *sock;
 	int fd, ipv6 = 0;
@@ -1513,6 +1629,44 @@ long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr,
 	return hid;
 }
 
+//---------------------------------------------------------------------
+// thread safe 
+//---------------------------------------------------------------------
+long async_core_new_connect(CAsyncCore *core, 
+	const struct sockaddr *addr, int addrlen, int header)
+{
+	long hr;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_new_connect(core, addr, addrlen, header);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
+//---------------------------------------------------------------------
+// thread safe 
+//---------------------------------------------------------------------
+long async_core_new_listen(CAsyncCore *core, 
+	const struct sockaddr *addr, int addrlen, int header)
+{
+	long hr;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_new_listen(core, addr, addrlen, header);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
+//---------------------------------------------------------------------
+// thread safe 
+//---------------------------------------------------------------------
+long async_core_new_assign(CAsyncCore *core, int fd, 
+	int header, int estab)
+{
+	long hr;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_new_assign(core, fd, header, estab);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
 
 //---------------------------------------------------------------------
 // process close
@@ -1538,7 +1692,7 @@ static void async_core_event_close(CAsyncCore *core,
 //---------------------------------------------------------------------
 static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 {
-	int fd, event, x, count, code = 2010;
+	int fd, event, x, count, xf, code = 2010;
 	void *udata;
 	IUINT64 ts;
 	IUINT32 now;
@@ -1549,11 +1703,29 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 	core->current = (IUINT32)(ts & 0xfffffffful);
 	now = (IUINT32)((ts / 1000) & 0xfffffffful);
 
+	xf = core->xfd[ASYNC_CORE_PIPE_READ];
+
 	for (x = count * 2; x > 0; x--) {
 		CAsyncSock *sock;
 		int needclose = 0;
 		if (ipoll_event(core->pfd, &fd, &event, &udata) != 0) {
 			break;
+		}
+		if (fd == xf && fd >= 0) {
+			if ((event & IPOLL_IN) || (event & IPOLL_ERR)) {
+				char dummy[10];
+				async_core_monitor++;
+				IMUTEX_LOCK(&core->xmtx);
+			#ifdef __unix
+				read(fd, dummy, 8);
+			#else
+				irecv(fd, dummy, 8, 0);
+			#endif
+				core->xfd[ASYNC_CORE_PIPE_FLAG] = 0;
+				IMUTEX_UNLOCK(&core->xmtx);
+				async_core_monitor--;
+			}
+			continue;
 		}
 		sock = (CAsyncSock*)udata;
 		if (sock == NULL || fd != sock->fd) {
@@ -1666,7 +1838,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 //---------------------------------------------------------------------
 // send vector
 //---------------------------------------------------------------------
-long async_core_send_vector(CAsyncCore *core, long hid,
+static long _async_core_send_vector(CAsyncCore *core, long hid,
 	const void * const vecptr[],
 	const long veclen[], int count, int mask)
 {
@@ -1687,6 +1859,19 @@ long async_core_send_vector(CAsyncCore *core, long hid,
 	return hr;
 }
 
+//---------------------------------------------------------------------
+// send vector
+//---------------------------------------------------------------------
+long async_core_send_vector(CAsyncCore *core, long hid,
+	const void * const vecptr[],
+	const long veclen[], int count, int mask)
+{
+	long hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_send_vector(core, hid, vecptr, veclen, count, mask);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
 
 //---------------------------------------------------------------------
 // send data to given hid
@@ -1695,9 +1880,13 @@ long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len)
 {
 	const void *vecptr[1];
 	long veclen[1];
+	long hr;
 	vecptr[0] = ptr;
 	veclen[0] = len;
-	return async_core_send_vector(core, hid, vecptr, veclen, 1, 0);
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_send_vector(core, hid, vecptr, veclen, 1, 0);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 //---------------------------------------------------------------------
@@ -1705,13 +1894,19 @@ long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len)
 //---------------------------------------------------------------------
 int async_core_close(CAsyncCore *core, long hid, int code)
 {
-	CAsyncSock *sock = async_core_node_get(core, hid);
-	if (sock == NULL) return -1;
-	if (sock->sendmsg.size > 0) {
-		async_sock_update(sock, 2);
+	CAsyncSock *sock;
+	int hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get(core, hid);
+	if (sock != NULL) {
+		if (sock->sendmsg.size > 0) {
+			async_sock_update(sock, 2);
+		}
+		async_core_event_close(core, sock, code);
+		hr = 0;
 	}
-	async_core_event_close(core, sock, code);
-	return 0;
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 
@@ -1719,9 +1914,57 @@ int async_core_close(CAsyncCore *core, long hid, int code)
 // wait for events for millisec ms. and process events, 
 // if millisec equals zero, no wait.
 //---------------------------------------------------------------------
+void async_core_wait(CAsyncCore *core, IUINT32 millisec)
+{
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	if (core->count > 0 || core->xfd[0] >= 0) {
+		async_core_process_events(core, millisec);
+	}	else {
+		if (millisec > 0) {
+			isleep(millisec);
+		}
+	}
+	ASYNC_CORE_CRITICAL_END(core);
+}
+
+//---------------------------------------------------------------------
+// old interface compatible
+//---------------------------------------------------------------------
 void async_core_process(CAsyncCore *core, IUINT32 millisec)
 {
-	async_core_process_events(core, millisec);
+	async_core_wait(core, millisec);
+}
+
+//---------------------------------------------------------------------
+// wake-up async_core_wait
+//---------------------------------------------------------------------
+int async_core_notify(CAsyncCore *core)
+{
+	int fd;
+	int hr = -1;
+	IMUTEX_LOCK(&core->xmtx);
+	fd = core->xfd[ASYNC_CORE_PIPE_WRITE];
+	if (core->xfd[ASYNC_CORE_PIPE_FLAG] == 0) {
+		if (fd >= 0) {
+			char dummy = 1;
+			int hr = 0;
+		#ifdef __unix
+			#ifndef __AVM2__
+			hr = write(fd, &dummy, 1);
+			#endif
+		#else
+			hr = send(fd, &dummy, 1, 0);
+		#endif
+			if (hr == 1) {
+				core->xfd[ASYNC_CORE_PIPE_FLAG] = 1;
+				hr = 0;
+			}
+		}
+	}	else {
+		hr = 1;
+	}
+	IMUTEX_UNLOCK(&core->xmtx);
+	return hr;
 }
 
 
@@ -1731,7 +1974,11 @@ void async_core_process(CAsyncCore *core, IUINT32 millisec)
 long async_core_read(CAsyncCore *core, int *event, long *wparam,
 	long *lparam, void *data, long size)
 {
-	return async_core_msg_read(core, event, wparam, lparam, data, size);
+	long hr = 0;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = async_core_msg_read(core, event, wparam, lparam, data, size);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 //---------------------------------------------------------------------
@@ -1740,39 +1987,55 @@ long async_core_read(CAsyncCore *core, int *event, long *wparam,
 //---------------------------------------------------------------------
 int async_core_get_mode(const CAsyncCore *core, long hid)
 {
-	const CAsyncSock *sock = async_core_node_get_const(core, hid);
-	if (sock == NULL) return -1;
-	return sock->mode;
+	const CAsyncSock *sock;
+	int mode = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get_const(core, hid);
+	if (sock != NULL) mode = sock->mode;
+	ASYNC_CORE_CRITICAL_END(core);
+	return mode;
 }
 
 // get tag
 long async_core_get_tag(const CAsyncCore *core, long hid)
 {
-	const CAsyncSock *sock = async_core_node_get_const(core, hid);
-	if (sock == NULL) return -1;
-	return sock->tag;
+	const CAsyncSock *sock;
+	long tag = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get_const(core, hid);
+	if (sock != NULL) tag = sock->tag;
+	ASYNC_CORE_CRITICAL_END(core);
+	return tag;
 }
 
 // set tag
 void async_core_set_tag(CAsyncCore *core, long hid, long tag)
 {
-	CAsyncSock *sock = async_core_node_get(core, hid);
+	CAsyncSock *sock;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get(core, hid);
 	if (sock != NULL) {
 		sock->tag = tag;
 	}
+	ASYNC_CORE_CRITICAL_END(core);
 }
 
 // get send queue size
 long async_core_remain(const CAsyncCore *core, long hid)
 {
-	const CAsyncSock *sock = async_core_node_get_const(core, hid);
-	if (sock == NULL) return -1;
-	return (long)sock->sendmsg.size;
+	const CAsyncSock *sock;
+	long size = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get_const(core, hid);
+	if (sock != NULL) size = (long)sock->sendmsg.size;
+	ASYNC_CORE_CRITICAL_END(core);
+	return size;
 }
 
 
 // set connection socket option
-int async_core_option(CAsyncCore *core, long hid, int opt, long value)
+static int _async_core_option(CAsyncCore *core, long hid, 
+	int opt, long value)
 {
 	int hr = -100;
 	CAsyncSock *sock = async_core_node_get(core, hid);
@@ -1829,7 +2092,7 @@ int async_core_option(CAsyncCore *core, long hid, int opt, long value)
 
 
 // get connection socket status
-long async_core_status(CAsyncCore *core, long hid, int opt)
+static long _async_core_status(CAsyncCore *core, long hid, int opt)
 {
 	long hr = -100;
 	CAsyncSock *sock = async_core_node_get(core, hid);
@@ -1852,83 +2115,140 @@ long async_core_status(CAsyncCore *core, long hid, int opt)
 	return hr;
 }
 
+// thread safe
+int async_core_option(CAsyncCore *core, long hid, int opt, long value)
+{
+	int hr = 0;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_option(core, hid, opt, value);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
+// thread safe
+long async_core_status(CAsyncCore *core, long hid, int opt)
+{
+	int hr = 0;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_status(core, hid, opt);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
 // set connection rc4 send key
 int async_core_rc4_set_skey(CAsyncCore *core, long hid, 
 	const unsigned char *key, int keylen)
 {
-	CAsyncSock *sock = async_core_node_get(core, hid);
-	if (sock == NULL) return -1;
-	async_sock_rc4_set_skey(sock, key, keylen);
-	return 0;
+	CAsyncSock *sock;
+	int hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get(core, hid);
+	if (sock != NULL) {
+		async_sock_rc4_set_skey(sock, key, keylen);
+		hr = 0;
+	}
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 // set connection rc4 recv key
 int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 	const unsigned char *key, int keylen)
 {
-	CAsyncSock *sock = async_core_node_get(core, hid);
-	if (sock == NULL) return -1;
-	async_sock_rc4_set_rkey(sock, key, keylen);
-	return 0;
+	CAsyncSock *sock;
+	int hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get(core, hid);
+	if (sock != NULL) {
+		async_sock_rc4_set_rkey(sock, key, keylen);
+		hr = 0;
+	}
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 // set default buffer limit and max packet size
 void async_core_limit(CAsyncCore *core, long limited, long maxsize)
 {
+	ASYNC_CORE_CRITICAL_BEGIN(core);
 	if (limited >= 0) {
 		core->limited = limited;
 	}
 	if (maxsize >= 0) {
 		core->maxsize = maxsize;
 	}
+	ASYNC_CORE_CRITICAL_END(core);
 }
 
 // set disable read polling event: 1/on, 0/off
 int async_core_disable(CAsyncCore *core, long hid, int value)
 {
-	CAsyncSock *sock = async_core_node_get(core, hid);
-	if (sock == NULL) return -1;
-	if (value == 0) {
-		return async_core_node_mask(core, sock, IPOLL_IN, 0);
+	CAsyncSock *sock;
+	int hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get(core, hid);
+	if (sock != NULL) {
+		if (value == 0) {
+			hr = async_core_node_mask(core, sock, IPOLL_IN, 0);
+		}	else {
+			hr = async_core_node_mask(core, sock, 0, IPOLL_IN);;
+		}
 	}
-	return async_core_node_mask(core, sock, 0, IPOLL_IN);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 // set remote ip validator
 void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user)
 {
+	ASYNC_CORE_CRITICAL_BEGIN(core);
 	core->validator = v;
 	core->user = user;
+	ASYNC_CORE_CRITICAL_END(core);
 }
 
 // set timeout
 void async_core_timeout(CAsyncCore *core, long seconds)
 {
+	ASYNC_CORE_CRITICAL_BEGIN(core);
 	core->timeout = seconds * 1000;
+	ASYNC_CORE_CRITICAL_END(core);
 }
 
 // getsockname
 int async_core_sockname(const CAsyncCore *core, long hid, 
 	struct sockaddr *addr, int *size)
 {
-	const CAsyncSock *sock = async_core_node_get_const(core, hid);
-	if (sock == NULL) return -2;
-	return isockname(sock->fd, addr, size);
+	const CAsyncSock *sock;
+	int hr = -2;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get_const(core, hid);
+	if (sock != NULL) hr = isockname(sock->fd, addr, size);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 // getpeername
 int async_core_peername(const CAsyncCore *core, long hid,
 	struct sockaddr *addr, int *size)
 {
-	const CAsyncSock *sock = async_core_node_get_const(core, hid);
-	if (sock == NULL) return -2;
-	return ipeername(sock->fd, addr, size);
+	const CAsyncSock *sock;
+	int hr = -2;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get_const(core, hid);
+	if (sock != NULL) hr = ipeername(sock->fd, addr, size);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 // get fd count
 long async_core_nfds(const CAsyncCore *core)
 {
-	return core->count;
+	long count = 0;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	count = core->count;
+	ASYNC_CORE_CRITICAL_END(core);
+	return count;
 }
 
 

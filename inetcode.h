@@ -208,8 +208,9 @@ typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,
 	CAsyncCore *core, long listenhid, void *user);
 
 
-// new CAsyncCore object
-CAsyncCore* async_core_new(void);
+// new CAsyncCore object:
+// if (flags & 1) disable lock, if (flags & 2) disable notify
+CAsyncCore* async_core_new(int flags);
 
 // delete async core
 void async_core_delete(CAsyncCore *core);
@@ -217,7 +218,10 @@ void async_core_delete(CAsyncCore *core);
 
 // wait for events for millisec ms. and process events, 
 // if millisec equals zero, no wait.
-void async_core_process(CAsyncCore *core, IUINT32 millisec);
+void async_core_wait(CAsyncCore *core, IUINT32 millisec);
+
+// wake-up async_core_wait, returns zero for success
+int async_core_notify(CAsyncCore *core);
 
 // read events, returns data length of the message, 
 // and returns -1 for no event, -2 for buffer size too small,
