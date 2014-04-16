@@ -735,7 +735,7 @@ long async_sock_recv_vector(CAsyncSock *asyncsock, void* const vecptr[],
 	if (len <= 0) return -1;
 	if ((long)len < hdrlen) return -3;
 	if ((long)len > asyncsock->maxsize) return -4;
-	if (asyncsock->recvmsg.size < (ilong)len) return -1;
+	if (asyncsock->recvmsg.size < (iulong)len) return -1;
 	if (vecptr == NULL) return len - hdrlen;
 	if ((long)len > size + hdrlen) return -2;
 
@@ -1496,7 +1496,7 @@ static long _async_core_new_assign(CAsyncCore *core, int fd,
 	}
 
 	if (isockname(fd, (struct sockaddr*)name, &size) == 0) {
-		if (size > sizeof(struct sockaddr_in)) {
+		if ((size_t)size > sizeof(struct sockaddr_in)) {
 			ipv6 = 1;
 		}
 	}	else {
