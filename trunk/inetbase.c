@@ -1311,7 +1311,7 @@ int inet_init(void)
 
 
 /* open udp port */
-int inet_open_port(unsigned short port, unsigned long ip, int noblock)
+int inet_open_port(unsigned short port, unsigned long ip, int flags)
 {
 	struct sockaddr addr;
 	static int inited = 0;
@@ -1328,6 +1328,10 @@ int inet_open_port(unsigned short port, unsigned long ip, int noblock)
 
 	memset(&addr, 0, sizeof(addr));
 	isockaddr_set(&addr, ip, port);
+
+	if ((flags & 2) != 0) {
+		ienable(sock, ISOCK_REUSEADDR);
+	}
 
 	if (bind(sock, &addr, sizeof(addr)) != 0) {
 		iclose(sock);
@@ -1361,11 +1365,9 @@ int inet_open_port(unsigned short port, unsigned long ip, int noblock)
 	}
 #endif
 
-	if (noblock != 0) {
+	if ((flags & 1) != 0) {
 		ienable(sock, ISOCK_NOBLOCK);
 	}
-
-	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char*)&mode, sizeof(long));
 
 	return sock;
 }

@@ -700,7 +700,8 @@ void ikmset(void *ikmalloc_func, void *ikfree_func);
 int inet_init(void);
 
 /* open a binded udp socket */
-int inet_open_port(unsigned short port, unsigned long ip, int noblock);
+/* (flags & 1): noblock, (flags & 2): reuse */
+int inet_open_port(unsigned short port, unsigned long ip, int flags);
 
 /* set recv buf and send buf */
 int inet_set_bufsize(int sock, long recvbuf_size, long sendbuf_size);
