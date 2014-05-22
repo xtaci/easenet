@@ -1315,7 +1315,6 @@ int inet_open_port(unsigned short port, unsigned long ip, int flags)
 {
 	struct sockaddr addr;
 	static int inited = 0;
-	long mode = 1;
 	int sock;
 
 	if (inited == 0) {
