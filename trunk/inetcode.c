@@ -407,7 +407,8 @@ static int async_sock_try_send(CAsyncSock *asyncsock)
 		if (size <= 0) break;
 		flat = (char*)ptr;
 		retval = isend(asyncsock->fd, flat, size, 0);
-		if (retval < 0) {
+		if (retval == 0) break;
+		else if (retval < 0) {
 			retval = ierrno();
 			if (retval == IEAGAIN || retval == 0) break;
 			else {
