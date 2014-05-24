@@ -409,7 +409,7 @@ static int async_sock_try_send(CAsyncSock *asyncsock)
 		retval = isend(asyncsock->fd, flat, size, 0);
 		if (retval < 0) {
 			retval = ierrno();
-			if (retval == IEAGAIN || retval == 0) retval = 0;
+			if (retval == IEAGAIN || retval == 0) break;
 			else {
 				asyncsock->error = retval;
 				return -1;
