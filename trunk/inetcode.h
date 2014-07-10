@@ -291,6 +291,7 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_LIMITED		6
 #define ASYNC_CORE_OPTION_MAXSIZE		7
 #define ASYNC_CORE_OPTION_PROGRESS		8
+#define ASYNC_CORE_OPTION_GETFD			9
 
 // set connection socket option
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);
