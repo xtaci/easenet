@@ -2087,6 +2087,9 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			sock->flags &= ~ASYNC_CORE_FLAG_PROGRESS;
 		}
 		break;
+	case ASYNC_CORE_OPTION_GETFD:
+		hr = sock->fd;
+		break;
 	}
 	return hr;
 }
