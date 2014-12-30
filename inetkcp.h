@@ -109,8 +109,8 @@ int ikcp_recv(ikcpcb *kcp, char *buffer, int len);
 int ikcp_send(ikcpcb *kcp, const char *buffer, int len);
 
 // update state (call it repeatedly, every 10ms-100ms), or you can ask 
-// ikcp_check when to call it again (without low level packet input).
-// 'current' - current timestamp in millisec
+// ikcp_check when to call it again (without ikcp_input/_send calling).
+// 'current' - current timestamp in millisec. 
 void ikcp_update(ikcpcb *kcp, IUINT32 current);
 
 // Determine when should you invoke ikcp_update:
